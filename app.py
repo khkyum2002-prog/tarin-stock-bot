@@ -75,6 +75,12 @@ def _heat_label(h):
     elif h >= 2.5: return "🟡 보통"
     return "🟢 안전"
 
+def _cv(v, fmt=".2f"):
+    color = "#00c853" if v >= 0 else "#ff4b4b"
+    sign = "+" if v >= 0 else ""
+    arrow = "▲" if v >= 0 else "▼"
+    return f'<span style="color:{color};font-weight:bold">{arrow} {sign}{v:{fmt}}</span>'
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 티커 이름 사전
 # ─────────────────────────────────────────────────────────────────────────────
@@ -638,15 +644,15 @@ with tab1:
             st.markdown("**📈 S&P500 Top 10**")
             if sp500_rs and "error" not in sp500_rs:
                 for i,item in enumerate(sp500_rs["top"],1):
-                    t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs","")
-                    st.markdown(f"`{i:2d}` **{t}** {kr}   `RS {rs:+.1f}`" if rs else f"`{i:2d}` **{t}** {kr}")
+                    t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs",0)
+                    st.markdown(f"`{i:2d}` **{t}** {kr} &nbsp; {_cv(rs,'1f')}", unsafe_allow_html=True)
             elif sp500_rs: st.error(sp500_rs.get("error"))
         with c2:
             st.markdown("**📈 나스닥100 Top 10**")
             if ndx_rs and "error" not in ndx_rs:
                 for i,item in enumerate(ndx_rs["top"],1):
-                    t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs","")
-                    st.markdown(f"`{i:2d}` **{t}** {kr}   `RS {rs:+.2f}`" if rs else f"`{i:2d}` **{t}** {kr}")
+                    t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs",0)
+                    st.markdown(f"`{i:2d}` **{t}** {kr} &nbsp; {_cv(rs,'2f')}", unsafe_allow_html=True)
             elif ndx_rs: st.error(ndx_rs.get("error"))
 
         st.divider()
@@ -683,10 +689,12 @@ with tab2:
         if market and "error" not in market:
             kp=market["kospi"]; kq=market["kosdaq"]
             c1,c2=st.columns(2)
-            c1.metric(f"{'🟢' if kp['chg_pct']>0 else '🔴'} 코스피 ({market['date']})",
-                      f"{kp['close']:,.2f}",f"{kp['chg_pct']:+.2f}% (주간 {kp['week_pct']:+.2f}%)")
-            c2.metric(f"{'🟢' if kq['chg_pct']>0 else '🔴'} 코스닥",
-                      f"{kq['close']:,.2f}",f"{kq['chg_pct']:+.2f}% (주간 {kq['week_pct']:+.2f}%)")
+            c1.metric(f"코스피 ({market['date']})", f"{kp['close']:,.2f}",
+                      f"{kp['chg_pct']:+.2f}% · 주간 {kp['week_pct']:+.2f}%",
+                      delta_color="normal")
+            c2.metric("코스닥", f"{kq['close']:,.2f}",
+                      f"{kq['chg_pct']:+.2f}% · 주간 {kq['week_pct']:+.2f}%",
+                      delta_color="normal")
         elif market: st.error(market.get("error"))
 
         st.divider()
@@ -696,13 +704,13 @@ with tab2:
         if sector and "error" not in sector:
             c1,c2=st.columns(2)
             with c1:
-                st.markdown("**강세 TOP3 🟢**")
+                st.markdown("**강세 TOP3**")
                 for name,chg in sector.get("top3",[]):
-                    st.markdown(f"▲ {name}: **{chg:+.2f}%**")
+                    st.markdown(f"{name}: {_cv(chg)}%", unsafe_allow_html=True)
             with c2:
-                st.markdown("**약세 BOT3 🔴**")
+                st.markdown("**약세 BOT3**")
                 for name,chg in sector.get("bot3",[]):
-                    st.markdown(f"▼ {name}: **{chg:+.2f}%**")
+                    st.markdown(f"{name}: {_cv(chg)}%", unsafe_allow_html=True)
         elif sector: st.error(sector.get("error"))
 
         st.divider()
@@ -714,11 +722,11 @@ with tab2:
             st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
             c1,c2=st.columns(2)
             with c1:
-                st.markdown("**수급 강세 🟢**")
-                for name,rel in supply.get("strong",[]): st.markdown(f"▲ {name}: `+{rel:.2f}`")
+                st.markdown("**수급 강세**")
+                for name,rel in supply.get("strong",[]): st.markdown(f"{name}: {_cv(rel)}", unsafe_allow_html=True)
             with c2:
-                st.markdown("**수급 약세 🔴**")
-                for name,rel in supply.get("weak",[]): st.markdown(f"▼ {name}: `{rel:.2f}`")
+                st.markdown("**수급 약세**")
+                for name,rel in supply.get("weak",[]): st.markdown(f"{name}: {_cv(rel)}", unsafe_allow_html=True)
         elif supply: st.error(supply.get("error"))
 
         st.divider()
