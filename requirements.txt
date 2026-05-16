@@ -1,8 +1,7 @@
-streamlit>=1.32.0
-yfinance>=0.2.37
-FinanceDataReader>=0.9.50
-scikit-learn>=1.4.0
-beautifulsoup4>=4.12.0
-requests>=2.31.0
-pandas>=2.1.0
-numpy>=1.26.0
+streamlit
+yfinance
+scikit-learn
+beautifulsoup4
+requests
+pandas
+numpy
