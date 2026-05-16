@@ -6,6 +6,8 @@ import requests
 import streamlit as st
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
@@ -297,13 +299,17 @@ def get_us_fear_greed():
             return int(sell[-1]),int(buy[-1])
         last = data.dropna(subset=["SPX_Osc","NDX_Osc"])
         spy_ts,spy_tb = td_setup(data["SPY"].dropna()); qqq_ts,qqq_tb = td_setup(data["QQQ"].dropna())
+        ch = last.tail(180)
         return {"spx_osc":round(float(last["SPX_Osc"].iloc[-1]),4),"ndx_osc":round(float(last["NDX_Osc"].iloc[-1]),4),
                 "spx_sentiment":"탐욕" if last["SPX_Osc"].iloc[-1]>0 else "공포",
                 "ndx_sentiment":"탐욕" if last["NDX_Osc"].iloc[-1]>0 else "공포",
                 "spy_gap":round(float(data["SPY_GapPct"].dropna().iloc[-1]),2),
                 "qqq_gap":round(float(data["QQQ_GapPct"].dropna().iloc[-1]),2),
                 "spy_impulse":impulse(data,"SPY"),"qqq_impulse":impulse(data,"QQQ"),
-                "spy_td_sell":spy_ts,"spy_td_buy":spy_tb,"qqq_td_sell":qqq_ts,"qqq_td_buy":qqq_tb}
+                "spy_td_sell":spy_ts,"spy_td_buy":spy_tb,"qqq_td_sell":qqq_ts,"qqq_td_buy":qqq_tb,
+                "chart":{"dates":[str(d.date()) for d in ch.index],
+                         "spx_osc":ch["SPX_Osc"].tolist(),"ndx_osc":ch["NDX_Osc"].tolist(),
+                         "spy":data["SPY"].reindex(ch.index).tolist()}}
     except Exception as e: return {"error":str(e)}
 
 def get_monthly_fear_greed():
@@ -648,10 +654,15 @@ def get_weekly_trend(ticker):
         mo = df['Close'].resample('ME').last().dropna(); m_ts,m_tb = td_cnt(mo)
         cur_cmf=float(wk['CMF'].dropna().iloc[-1]); cur_close=float(wk['Close'].iloc[-1])
         cur_ma10 = float(wk['MA10'].dropna().iloc[-1]) if not wk['MA10'].dropna().empty else None
+        ch_wk = wk.tail(26)
+        chart = {"dates":[str(d.date()) for d in ch_wk.index],
+                 "close":ch_wk['Close'].tolist(),"ma10":ch_wk['MA10'].tolist(),
+                 "cmf":ch_wk['CMF'].tolist(),"high":ch_wk['High'].tolist(),"low":ch_wk['Low'].tolist()}
         return {"ticker":t,"price":round(cur_close,2),"ma10":round(cur_ma10,2) if cur_ma10 else None,
                 "cmf":round(cur_cmf,4),"buy_signal":bool(buy.iloc[-1]),"sell_signal":bool(sell.iloc[-1]),
                 "recent_buy_4w":int(buy.tail(4).sum()),"impulse_weekly":impulse_w,
-                "w_td_sell":w_ts,"w_td_buy":w_tb,"d_td_sell":d_ts,"d_td_buy":d_tb,"m_td_sell":m_ts,"m_td_buy":m_tb}
+                "w_td_sell":w_ts,"w_td_buy":w_tb,"d_td_sell":d_ts,"d_td_buy":d_tb,"m_td_sell":m_ts,"m_td_buy":m_tb,
+                "chart":chart}
     except Exception as e: return {"error":str(e)}
 
 def get_trading_intensity(ticker):
@@ -695,8 +706,10 @@ def get_trading_intensity(ticker):
         cur=round(float(ti_norm.iloc[-1]),1)
         ma3=round(float(ti_norm.rolling(3).mean().iloc[-1]),1) if len(ti_norm)>=3 else cur
         sig7=round(float(ti_norm.ewm(span=7,adjust=False).mean().iloc[-1]),1)
+        n = ti_norm.tail(120); ma3_s = ti_norm.rolling(3).mean().tail(120); sig7_s = ti_norm.ewm(span=7,adjust=False).mean().tail(120)
         return {"ticker":t,"ti":cur,"ti_ma3":ma3,"ti_signal":sig7,
-                "signal_text":"🔴 과열" if cur>=75 else ("🟡 중립" if cur>=40 else "🟢 매집")}
+                "signal_text":"🔴 과열" if cur>=75 else ("🟡 중립" if cur>=40 else "🟢 매집"),
+                "chart":{"dates":[str(d.date()) for d in n.index],"ti":n.tolist(),"ti_ma3":ma3_s.tolist(),"ti_signal":sig7_s.tolist()}}
     except Exception as e: return {"error":str(e)}
 
 def calc_kr_fg_excel(df_kospi, df_kosdaq):
@@ -742,11 +755,19 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
         kq=calc_fg_local(kq,'코스닥','코스피 200 변동성지수','최근월물 CALL ATM','최근월물 PUT ATM','5년 국채선물 추종 지수','10년국채선물지수')
         kp_osc=round(float(kp['Oscillator'].dropna().iloc[-1]),4); kq_osc=round(float(kq['Oscillator'].dropna().iloc[-1]),4)
         kp_ts,kp_tb=td_local(kp['코스피'].dropna()); kq_ts,kq_tb=td_local(kq['코스닥'].dropna())
+        cutoff = kp['Date'].max() - pd.DateOffset(months=6)
+        ch_kp = kp[kp['Date']>=cutoff].dropna(subset=['Oscillator','코스피'])
+        ch_kq = kq[kq['Date']>=kq['Date'].max()-pd.DateOffset(months=6)].dropna(subset=['Oscillator'])
+        chart = {"dates":[str(pd.Timestamp(d).date()) for d in ch_kp['Date'].tolist()],
+                 "kospi_osc":ch_kp['Oscillator'].tolist(),"kospi_price":ch_kp['코스피'].tolist(),
+                 "kosdaq_dates":[str(pd.Timestamp(d).date()) for d in ch_kq['Date'].tolist()],
+                 "kosdaq_osc":ch_kq['Oscillator'].tolist()}
         return {"date":kp['Date'].iloc[-1].strftime('%Y-%m-%d'),
                 "kospi_osc":kp_osc,"kosdaq_osc":kq_osc,
                 "kospi_sentiment":"탐욕" if kp_osc>0 else "공포","kosdaq_sentiment":"탐욕" if kq_osc>0 else "공포",
                 "kospi_impulse":get_impulse_local(kp,'코스피'),"kosdaq_impulse":get_impulse_local(kq,'코스닥'),
-                "kospi_td_sell":kp_ts,"kospi_td_buy":kp_tb,"kosdaq_td_sell":kq_ts,"kosdaq_td_buy":kq_tb}
+                "kospi_td_sell":kp_ts,"kospi_td_buy":kp_tb,"kosdaq_td_sell":kq_ts,"kosdaq_td_buy":kq_tb,
+                "chart":chart}
     except Exception as e: return {"error":str(e)}
 
 def calc_consensus_excel(df_db):
@@ -849,6 +870,21 @@ with tab1:
                 c1.metric("SPY SuperMA 이격",f"{fg['spy_gap']:+.2f}%"); c2.metric("QQQ SuperMA 이격",f"{fg['qqq_gap']:+.2f}%")
                 c1.metric("SPY TD 매도/매수",f"{fg['spy_td_sell']} / {fg['spy_td_buy']}")
                 c2.metric("QQQ TD 매도/매수",f"{fg['qqq_td_sell']} / {fg['qqq_td_buy']}")
+                if fg.get("chart"):
+                    with st.expander("📈 오실레이터 차트 (최근 6개월)"):
+                        ch=fg["chart"]
+                        _fig=go.Figure()
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spx_osc"],name="S&P500 Osc",line=dict(color="#6A5ACD",width=2)))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ndx_osc"],name="NASDAQ Osc",line=dict(color="#00B3B3",width=2)))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spy"],name="SPY",yaxis="y2",line=dict(color="#888888",width=1.5,dash="dot")))
+                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)")
+                        _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False),
+                                            height=340,margin=dict(l=10,r=60,t=20,b=10),
+                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                            font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
+                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        st.plotly_chart(_fig,use_container_width=True)
             else: st.error("일간 F&G 오류")
         with c_m:
             st.markdown("**📆 월간 (중장기 추세)**")
@@ -910,6 +946,19 @@ with tab1:
             st.dataframe(df_s.rename(columns={"ticker":"티커","name":"섹터","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"}),
                 use_container_width=True, hide_index=True,
                 column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
+            with st.expander("📊 섹터 RS 차트 보기"):
+                _sorted=sorted(us_sector["sectors"],key=lambda x:x["norm_rs"])
+                _names=[f"{r['name']}({r['ticker']})" for r in _sorted]
+                _vals=[r["norm_rs"] for r in _sorted]
+                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+                _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
+                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
+                _fig.update_layout(xaxis_range=[0,110],height=max(320,len(_names)*26),
+                                    margin=dict(l=10,r=50,t=10,b=10),
+                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
+                _fig.add_vline(x=50,line_dash="dash",line_color="#ffc107",opacity=0.5)
+                st.plotly_chart(_fig,use_container_width=True)
         elif us_sector: st.error(us_sector.get("error"))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -985,6 +1034,18 @@ with tab2:
                 st.dataframe(df_kr.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","risk_adj":"변동성조정모멘텀","강도":"강도"})[["ETF명","RS(0~100)","변동성조정모멘텀","강도"]],
                     use_container_width=True, hide_index=True,
                     column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
+            with st.expander("📊 한국 ETF RS 차트"):
+                _all=kr_etf.get("all",[])[:25]; _all_s=sorted(_all,key=lambda x:x["norm_rs"])
+                _names=[r["name"] for r in _all_s]; _vals=[r["norm_rs"] for r in _all_s]
+                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+                _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
+                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
+                _fig.update_layout(xaxis_range=[0,110],height=max(320,len(_names)*26),
+                                    margin=dict(l=10,r=50,t=10,b=10),
+                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
+                _fig.add_vline(x=50,line_dash="dash",line_color="#ffc107",opacity=0.5)
+                st.plotly_chart(_fig,use_container_width=True)
         elif kr_etf: st.error(kr_etf.get("error"))
 
         st.divider()
@@ -1020,6 +1081,18 @@ with tab2:
                     use_container_width=True, hide_index=True,
                     column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
             st.caption(f"전체 {len(kr_rs.get('all',[]))}종목 스캔 / RS≥70 강세 {len(kr_rs.get('strong',[]))}종목")
+            with st.expander("📊 개별종목 RS 차트"):
+                _show=kr_rs.get("strong") or kr_rs.get("all",[])[:15]
+                _show_s=sorted(_show,key=lambda x:x["norm_rs"])
+                _names=[r["name"] for r in _show_s]; _vals=[r["norm_rs"] for r in _show_s]
+                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+                _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
+                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
+                _fig.update_layout(xaxis_range=[0,110],height=max(300,len(_names)*28),
+                                    margin=dict(l=10,r=50,t=10,b=10),
+                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
+                st.plotly_chart(_fig,use_container_width=True)
 
     st.divider()
 
@@ -1043,6 +1116,25 @@ with tab2:
                 c1.metric("코스피 임펄스", kr_fg["kospi_impulse"]); c2.metric("코스닥 임펄스", kr_fg["kosdaq_impulse"])
                 c1.metric("코스피 TD 매도/매수", f"{kr_fg['kospi_td_sell']} / {kr_fg['kospi_td_buy']}")
                 c2.metric("코스닥 TD 매도/매수", f"{kr_fg['kosdaq_td_sell']} / {kr_fg['kosdaq_td_buy']}")
+                if kr_fg.get("chart"):
+                    with st.expander("📈 F&G 오실레이터 차트 (최근 6개월)"):
+                        ch=kr_fg["chart"]
+                        _fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.5,0.5],vertical_spacing=0.06,
+                                           subplot_titles=("코스피 오실레이터","코스닥 오실레이터"))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["kospi_osc"],name="KOSPI Osc",
+                                                   line=dict(color="#6A5ACD",width=2),fill='tozeroy',
+                                                   fillcolor='rgba(106,90,205,0.15)'),row=1,col=1)
+                        _fig.add_trace(go.Scatter(x=ch.get("kosdaq_dates",ch["dates"]),y=ch.get("kosdaq_osc",[]),
+                                                   name="KOSDAQ Osc",line=dict(color="#00B3B3",width=2),
+                                                   fill='tozeroy',fillcolor='rgba(0,179,179,0.15)'),row=2,col=1)
+                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=1,col=1)
+                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
+                        _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10),
+                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                            font_color='#e0e0e0',showlegend=False)
+                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        st.plotly_chart(_fig,use_container_width=True)
         except Exception as e:
             st.error(f"파일 읽기 오류: {e}")
 
@@ -1135,6 +1227,26 @@ with tab3:
                 c2.metric("일봉 TD 매도/매수", f"{wt['d_td_sell']} / {wt['d_td_buy']}")
                 c3.metric("월봉 TD 매도/매수", f"{wt['m_td_sell']} / {wt['m_td_buy']}")
                 if wt.get("ma10"): st.caption(f"현재가: {wt['price']:,} | 주봉 MA10: {wt['ma10']:,}")
+                if wt.get("chart"):
+                    with st.expander("📊 주봉 차트 보기 (가격 + CMF)"):
+                        ch=wt["chart"]
+                        _fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.65,0.35],
+                                           vertical_spacing=0.05,subplot_titles=("주가","CMF"))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["close"],name="종가",
+                                                   line=dict(color="#E0E0E0",width=2)),row=1,col=1)
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ma10"],name="MA10",
+                                                   line=dict(color="#FF8C00",width=1.5,dash="dot")),row=1,col=1)
+                        _cmf_colors=["#00c853" if v>0 else "#ff4b4b" for v in ch["cmf"]]
+                        _fig.add_trace(go.Bar(x=ch["dates"],y=ch["cmf"],name="CMF",
+                                               marker_color=_cmf_colors),row=2,col=1)
+                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
+                        _fig.update_layout(height=400,margin=dict(l=10,r=20,t=40,b=10),
+                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                            font_color='#e0e0e0',showlegend=True,
+                                            legend=dict(orientation='h',y=1.08))
+                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        st.plotly_chart(_fig,use_container_width=True)
                 st.divider()
 
         st.divider()
@@ -1152,4 +1264,27 @@ with tab3:
                 c2.metric("TI MA3", f"{ti['ti_ma3']:.1f}")
                 c3.metric("TI Signal (EMA7)", f"{ti['ti_signal']:.1f}")
                 st.caption("TI ≥75: 🔴 과열 | 40~74: 🟡 중립 | <40: 🟢 매집 구간")
+                if ti.get("chart"):
+                    with st.expander("📊 거래대금 강도 차트 보기"):
+                        ch=ti["chart"]
+                        _fig=go.Figure()
+                        _fig.add_hrect(y0=75,y1=100,fillcolor="rgba(255,75,75,0.08)",line_width=0)
+                        _fig.add_hrect(y0=0,y1=40,fillcolor="rgba(0,200,83,0.08)",line_width=0)
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ti"],name="TI",
+                                                   line=dict(color="#00B3B3",width=2)))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ti_ma3"],name="MA3",
+                                                   line=dict(color="#FF8C00",width=1.5,dash="dot")))
+                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ti_signal"],name="Signal(EMA7)",
+                                                   line=dict(color="#6A5ACD",width=1.5,dash="dash")))
+                        _fig.add_hline(y=75,line_dash="dash",line_color="#ff4b4b",opacity=0.6,
+                                        annotation_text="과열(75)",annotation_position="bottom right")
+                        _fig.add_hline(y=40,line_dash="dash",line_color="#00c853",opacity=0.6,
+                                        annotation_text="매집(40)",annotation_position="top right")
+                        _fig.update_layout(yaxis_range=[0,100],height=320,
+                                            margin=dict(l=10,r=20,t=20,b=10),
+                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                            font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
+                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                        st.plotly_chart(_fig,use_container_width=True)
                 st.divider()
