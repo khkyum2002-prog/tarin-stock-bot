@@ -879,6 +879,103 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
                 "chart":chart}
     except Exception as e: return {"error":str(e)}
 
+def get_kr_supply_auto(top_n=20, days=20):
+    """네이버 파이낸스 외국인 순매수 자동 스크리닝 (무료 데이터)"""
+    import concurrent.futures
+    from bs4 import BeautifulSoup
+
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://finance.naver.com/"
+    }
+
+    def _parse_num(s):
+        try: return int(s.replace(",","").replace("+",""))
+        except: return 0
+
+    def fetch_stock(args):
+        ticker, name = args
+        code = ticker.replace(".KS","").replace(".KQ","")
+        try:
+            url = f"https://finance.naver.com/item/frgn.naver?code={code}&page=1"
+            r = requests.get(url, headers=hdrs, timeout=12)
+            if r.status_code != 200:
+                return None
+            soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
+            tables = soup.find_all("table")
+            if len(tables) < 4:
+                return None
+            rows_data = []
+            for row in tables[3].find_all("tr"):
+                cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cells) >= 6 and cells[0] and "." in cells[0]:
+                    try:
+                        close = _parse_num(cells[1])
+                        net_qty = _parse_num(cells[5])
+                        if close > 0:
+                            rows_data.append({"close": close, "net_qty": net_qty,
+                                              "net_val": net_qty * close, "date": cells[0]})
+                    except:
+                        pass
+            if not rows_data:
+                return None
+            df_s = pd.DataFrame(rows_data[:days])
+            net_20d_val = int(df_s["net_val"].sum())
+            net_20d_qty = int(df_s["net_qty"].sum())
+            latest_close = int(df_s["close"].iloc[0])
+            daily_vals = df_s["net_val"].tolist()
+            dates_list = df_s["date"].tolist()
+            return {
+                "ticker": ticker, "name": name, "code": code,
+                "net_20d_val": net_20d_val, "net_20d_qty": net_20d_qty,
+                "latest_close": latest_close,
+                "chart_dates": dates_list[::-1],
+                "chart_vals": [v // 100_000_000 for v in daily_vals[::-1]],  # 억원
+            }
+        except:
+            return None
+
+    stock_list = [(t, n) for t, n in KR_STOCKS.items()]
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(fetch_stock, s): s for s in stock_list}
+        for fut in concurrent.futures.as_completed(futs):
+            res = fut.result()
+            if res:
+                results.append(res)
+
+    if not results:
+        return {"error": "데이터 수집 실패"}
+
+    df_res = pd.DataFrame(results)
+    df_res["net_20d_bil"] = df_res["net_20d_val"] / 100_000_000
+    df_res_sorted = df_res.sort_values("net_20d_val", ascending=False).reset_index(drop=True)
+
+    top20 = df_res_sorted.head(top_n)[["ticker","name","latest_close","net_20d_bil"]].copy()
+    top20.columns = ["ticker","종목명","현재가","20일외국인순매수(억)"]
+    top20["20일외국인순매수(억)"] = top20["20일외국인순매수(억)"].round(1)
+
+    worst20 = df_res_sorted.tail(top_n)[["ticker","name","latest_close","net_20d_bil"]].copy()
+    worst20 = worst20.sort_values("net_20d_bil").reset_index(drop=True)
+    worst20.columns = ["ticker","종목명","현재가","20일외국인순매수(억)"]
+    worst20["20일외국인순매수(억)"] = worst20["20일외국인순매수(억)"].round(1)
+
+    # Chart data: cumulative daily net buying for TOP5
+    top5_chart = []
+    for _, row in df_res_sorted.head(5).iterrows():
+        top5_chart.append({
+            "name": row["name"], "dates": row["chart_dates"], "vals": row["chart_vals"]
+        })
+
+    return {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "scanned": len(results),
+        "top20": top20.to_dict("records"),
+        "worst20": worst20.to_dict("records"),
+        "top5_chart": top5_chart,
+        "note": "외국인 순매수량 × 종가 (20거래일 누적) 기준 | 출처: 네이버 파이낸스"
+    }
+
 def calc_consensus_excel(df_db):
     try:
         cols = list(df_db.columns)
@@ -1285,9 +1382,60 @@ with tab2:
 
     st.divider()
 
-    # ── 컨센 가속 & 수급 ──
-    st.markdown("### 📋 컨센 가속 & 수급 반영")
-    st.caption("데이터 정리.xlsx 업로드 필요 (db 시트 포함)")
+    # ── 수급 자동 스크리닝 ──
+    st.markdown("### 📡 외국인 수급 자동 스크리닝")
+    st.caption("네이버 파이낸스 실시간 스크래핑 | 외국인 20일 순매수 누적 기준 (무료 자동)")
+    col_sa, col_sb = st.columns([1,2])
+    with col_sa:
+        supply_days = st.selectbox("집계 기간", [10,20,40], index=1, key="supply_days_sel")
+    with col_sb:
+        st.caption(f"현재 설정: 최근 {supply_days}거래일 외국인 순매수 누적 (순매수량 × 종가)")
+    if st.button("▶ 수급 자동 스크리닝 실행", key="kr_supply_auto_run", use_container_width=True):
+        with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 수급 데이터 수집 중... (30~60초)"):
+            sup = get_kr_supply_auto(top_n=20, days=supply_days)
+        if "error" in sup:
+            st.error(f"수집 오류: {sup['error']}")
+        else:
+            st.caption(f"기준일: {sup['date']} | 스캔 종목: {sup['scanned']}개 | {sup['note']}")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**🟢 외국인 순매수 TOP20**")
+                for i, row in enumerate(sup["top20"], 1):
+                    val = row["20일외국인순매수(억)"]
+                    sign = "+" if val >= 0 else ""
+                    st.markdown(f"`{i:2d}` **{row['종목명']}** ({row['ticker']}) — {sign}{val:.1f}억")
+            with c2:
+                st.markdown("**🔴 외국인 순매도 TOP20**")
+                for i, row in enumerate(sup["worst20"], 1):
+                    val = row["20일외국인순매수(억)"]
+                    sign = "+" if val >= 0 else ""
+                    st.markdown(f"`{i:2d}` **{row['종목명']}** ({row['ticker']}) — {sign}{val:.1f}억")
+            if sup.get("top5_chart"):
+                with st.expander("📊 외국인 순매수 TOP5 차트"):
+                    _fig_s = go.Figure()
+                    colors_s = ["#00c853","#2196F3","#FF8C00","#9C27B0","#00B3B3"]
+                    for ci, item in enumerate(sup["top5_chart"]):
+                        _fig_s.add_trace(go.Bar(
+                            x=item["dates"], y=item["vals"],
+                            name=item["name"],
+                            marker_color=colors_s[ci % len(colors_s)],
+                        ))
+                    _fig_s.update_layout(
+                        title="외국인 일별 순매수 (억원)", barmode="group",
+                        height=380, margin=dict(l=10,r=20,t=40,b=10),
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e0e0", yaxis_title="억원",
+                        legend=dict(orientation="h", y=1.12),
+                    )
+                    _fig_s.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    _fig_s.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(_fig_s, use_container_width=True)
+
+    st.divider()
+
+    # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
+    st.markdown("### 📋 컨센 가속 & 수급 반영 (Excel 정밀)")
+    st.caption("데이터 정리.xlsx 업로드 — EPS 컨센서스 가속 + 외국인/기관 수급 교집합 분석")
     consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
     if consensus_file:
         try:
