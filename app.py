@@ -976,6 +976,113 @@ def get_kr_supply_auto(top_n=20, days=20):
         "note": "외국인 순매수량 × 종가 (20거래일 누적) 기준 | 출처: 네이버 파이낸스"
     }
 
+def get_kr_consensus_auto(top_n=20):
+    """WiseReport(네이버 내장) 컨센서스 자동 스크리닝 — EPS성장·매수비율·TP인상비율 기반"""
+    import concurrent.futures
+    from bs4 import BeautifulSoup
+
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://finance.naver.com/"
+    }
+
+    def _pn(s):
+        try: return int(str(s).replace("원","").replace(",","").strip())
+        except: return None
+
+    def fetch_consensus(args):
+        ticker, name = args
+        code = ticker.replace(".KS","").replace(".KQ","")
+        try:
+            url = f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={code}"
+            r = requests.get(url, headers=hdrs, timeout=12)
+            if r.status_code != 200: return None
+            soup = BeautifulSoup(r.content, "html.parser", from_encoding="utf-8")
+            tables = soup.find_all("table")
+            if len(tables) < 12: return None
+
+            # EPS 실적/추정 (table[5])
+            eps_actual = eps_est = None
+            for row in tables[5].find_all("tr"):
+                cells = [c.get_text(strip=True) for c in row.find_all(["th","td"])]
+                if len(cells) >= 3 and "EPS" in cells[0]:
+                    eps_actual = _pn(cells[1]); eps_est = _pn(cells[2])
+                    break
+
+            # 컨센서스 요약 (table[11]): avg_rating, cons_tp, analyst_count
+            cons_tp = analyst_count = avg_rating = None
+            rows11 = tables[11].find_all("tr")
+            if len(rows11) >= 2:
+                vals = [c.get_text(strip=True) for c in rows11[1].find_all(["th","td"])]
+                if len(vals) >= 5:
+                    try: avg_rating = float(vals[0])
+                    except: pass
+                    cons_tp = _pn(vals[1])
+                    try: analyst_count = int(vals[4].replace(",",""))
+                    except: pass
+
+            # 애널리스트 의견 (table[12]): buy%, TP인상%
+            buy_n = total_n = raised_n = 0
+            for row in tables[12].find_all("tr")[1:]:
+                cells = [c.get_text(strip=True) for c in row.find_all(["th","td"])]
+                if len(cells) >= 6:
+                    try:
+                        tp_now = _pn(cells[2]); tp_prev = _pn(cells[3])
+                        rating = cells[5].upper()
+                        total_n += 1
+                        if "BUY" in rating or "매수" in rating: buy_n += 1
+                        if tp_now and tp_prev and tp_now > tp_prev: raised_n += 1
+                    except: pass
+
+            if analyst_count is None or analyst_count < 2: return None
+            buy_pct = round(buy_n / total_n * 100, 1) if total_n > 0 else 0
+            tp_raise_pct = round(raised_n / total_n * 100, 1) if total_n > 0 else 0
+
+            eps_growth = None
+            if eps_actual and eps_est and eps_actual > 0:
+                eps_growth = round((eps_est - eps_actual) / eps_actual * 100, 1)
+
+            # 컨센 스코어: EPS성장(40%) + 매수비율(30%) + TP인상비율(30%)
+            score = 0.0
+            if eps_growth is not None: score += min(eps_growth, 300) / 300 * 40
+            score += buy_pct / 100 * 30
+            score += tp_raise_pct / 100 * 30
+
+            return {
+                "ticker": ticker, "name": name,
+                "eps_actual": eps_actual, "eps_est": eps_est,
+                "eps_growth": eps_growth,
+                "cons_tp": cons_tp, "analyst_count": analyst_count,
+                "avg_rating": avg_rating,
+                "buy_pct": buy_pct, "tp_raise_pct": tp_raise_pct,
+                "score": round(score, 1),
+            }
+        except: return None
+
+    stock_list = [(t, n) for t, n in KR_STOCKS.items()]
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(fetch_consensus, s): s for s in stock_list}
+        for fut in concurrent.futures.as_completed(futs):
+            res = fut.result()
+            if res: results.append(res)
+
+    if not results: return {"error": "컨센서스 데이터 수집 실패"}
+
+    df_c = pd.DataFrame(results).sort_values("score", ascending=False).reset_index(drop=True)
+    top20 = df_c.head(top_n).to_dict("records")
+    # 컨센 가속 필터: EPS성장 양수 + 매수비율≥60% + TP인상비율≥50%
+    accel = df_c[(df_c["eps_growth"].notna()) & (df_c["eps_growth"] > 0) &
+                 (df_c["buy_pct"] >= 60) & (df_c["tp_raise_pct"] >= 50)].head(top_n).to_dict("records")
+
+    return {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "scanned": len(results),
+        "top20": top20,
+        "accel": accel,
+        "note": "출처: WiseReport/네이버 | EPS성장(40%)+매수비율(30%)+TP인상비율(30%) 가중합산"
+    }
+
 def calc_consensus_excel(df_db):
     try:
         cols = list(df_db.columns)
@@ -1430,6 +1537,39 @@ with tab2:
                     _fig_s.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     _fig_s.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     st.plotly_chart(_fig_s, use_container_width=True)
+
+    st.divider()
+
+    # ── 컨센 가속 자동 ──
+    st.markdown("### 🤖 컨센서스 가속 자동 스크리닝")
+    st.caption("WiseReport/네이버 | EPS 성장률 + 매수비율 + 목표가 인상비율 기반 자동 분석")
+    if st.button("▶ 컨센서스 가속 자동 실행", key="kr_consensus_auto_run", use_container_width=True):
+        with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 컨센서스 수집 중... (60~90초)"):
+            cons_auto = get_kr_consensus_auto(top_n=20)
+        if "error" in cons_auto:
+            st.error(f"수집 오류: {cons_auto['error']}")
+        else:
+            st.caption(f"기준일: {cons_auto['date']} | 스캔: {cons_auto['scanned']}개 | {cons_auto['note']}")
+            if cons_auto.get("accel"):
+                st.markdown("#### 🎯 컨센 가속 종목 (EPS성장↑ + 매수↑ + TP인상↑)")
+                for i, row in enumerate(cons_auto["accel"], 1):
+                    eps_g = f"{row['eps_growth']:+.0f}%" if row['eps_growth'] is not None else "N/A"
+                    st.markdown(
+                        f"`{i:2d}` **{row['name']}** ({row['ticker']}) — "
+                        f"EPS성장:{eps_g} | 매수비율:{row['buy_pct']:.0f}% | "
+                        f"TP인상:{row['tp_raise_pct']:.0f}% | 애널:{row['analyst_count']}명"
+                    )
+            else:
+                st.info("컨센 가속 조건(EPS+·매수≥60%·TP인상≥50%) 충족 종목 없음")
+            with st.expander("📊 전체 TOP20 스코어 보기"):
+                for i, row in enumerate(cons_auto["top20"], 1):
+                    eps_g = f"{row['eps_growth']:+.0f}%" if row['eps_growth'] is not None else "N/A"
+                    cons_tp_str = f"{row['cons_tp']:,}원" if row['cons_tp'] else "N/A"
+                    st.markdown(
+                        f"`{i:2d}` **{row['name']}** — 스코어:{row['score']} | "
+                        f"EPS성장:{eps_g} | TP:{cons_tp_str} | "
+                        f"매수:{row['buy_pct']:.0f}% | TP인상:{row['tp_raise_pct']:.0f}%"
+                    )
 
     st.divider()
 
