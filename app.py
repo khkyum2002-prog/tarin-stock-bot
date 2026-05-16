@@ -582,6 +582,115 @@ def get_buy_timing(ticker):
     except Exception as e: return {"error":str(e)}
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 한국 F&G 자동 계산 (Yahoo Finance만 사용)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_kr_fg_auto():
+    """
+    Excel 없이 완전 자동 한국 피어앤그리드 오실레이터
+    - KOSPI / KOSDAQ : ^KS11, ^KQ11
+    - VKOSPI 대체    : KOSPI 20일 실현변동성(annualized)
+    - 채권 스프레드  : 148070.KS(10Y ETF) / 365780.KS(5Y ETF) 상대변화
+    - 위험선호 대체  : KOSDAQ/KOSPI 상대강도 (P/C 대리)
+    """
+    try:
+        tks = ["^KS11","^KQ11","148070.KS","365780.KS"]
+        raw = yf.download(tks, period="3y", auto_adjust=True, progress=False)
+        if raw.empty: return {"error":"데이터 없음"}
+        px = raw["Close"].copy()
+        if isinstance(px.columns, pd.MultiIndex): px.columns = px.columns.get_level_values(0)
+
+        needed = ["^KS11","^KQ11","148070.KS","365780.KS"]
+        for c in needed:
+            if c not in px.columns: return {"error":f"{c} 데이터 없음"}
+        px = px[needed].dropna(how="all").ffill()
+
+        def _rsi10(s): return _rsi(s, 10)
+
+        results = {}
+        for idx_col, label in [("^KS11","KOSPI"),("^KQ11","KOSDAQ")]:
+            df = pd.DataFrame(index=px.index)
+            s = px[idx_col]
+
+            # 1) Momentum vs MA125
+            df["MA125"] = s.rolling(125).mean()
+            df["Momentum"] = (s - df["MA125"]) / df["MA125"] * 100
+
+            # 2) RSI(10)
+            df["RSI_10"] = _rsi10(s)
+
+            # 3) 실현변동성 (VKOSPI 대체, 높을수록 공포 → 오실레이터에서 반전)
+            df["RealVol"] = s.pct_change().rolling(20).std() * (252**0.5) * 100
+
+            # 4) 채권 스프레드 (10Y ETF - 5Y ETF 수익률 차이)
+            df["Bond10Y"] = px["148070.KS"].pct_change(20).fillna(0)
+            df["Bond5Y"]  = px["365780.KS"].pct_change(20).fillna(0)
+            df["BondSpread"] = df["Bond10Y"] - df["Bond5Y"]
+
+            # 5) 위험선호 (KOSDAQ/KOSPI 상대강도 — P/C 대리)
+            rel = px["^KQ11"] / px["^KS11"]
+            df["RiskApp"] = rel.pct_change(20).fillna(0)
+
+            feats = ["Momentum","RSI_10","RealVol","BondSpread","RiskApp"]
+            valid = df.dropna(subset=feats).index
+            if len(valid) < 60: continue
+
+            df.loc[valid, feats] = MinMaxScaler().fit_transform(df.loc[valid, feats])
+            # RealVol은 높을수록 공포 → 반전
+            df.loc[valid, "FGI"] = (
+                df.loc[valid,"Momentum"]    * 0.20 +
+                df.loc[valid,"RSI_10"]      * 0.20 +
+                (1 - df.loc[valid,"RealVol"]) * 0.20 +
+                df.loc[valid,"BondSpread"]  * 0.20 +
+                df.loc[valid,"RiskApp"]     * 0.20
+            )
+            ema12 = df["FGI"].ewm(span=12,adjust=False).mean()
+            ema26 = df["FGI"].ewm(span=26,adjust=False).mean()
+            macd  = ema12 - ema26
+            df["Oscillator"] = macd - macd.ewm(span=9,adjust=False).mean()
+
+            recent = df.dropna(subset=["Oscillator"])
+            if recent.empty: continue
+            osc = round(float(recent["Oscillator"].iloc[-1]), 4)
+
+            # 임펄스
+            ema13 = s.ewm(span=13,adjust=False).mean()
+            mh    = _macd_hist(s)
+            if len(ema13.dropna()) >= 2:
+                eu = ema13.iloc[-1] > ema13.iloc[-2]
+                mu = mh.iloc[-1] > mh.iloc[-2]
+                imp = "🟢 강세" if eu and mu else ("🔴 약세" if not eu and not mu else "🔵 중립")
+            else:
+                imp = "알수없음"
+
+            # TD Setup
+            p = s.values; sc = np.zeros(len(p)); bc = np.zeros(len(p))
+            for i in range(len(p)):
+                sc[i] = sc[i-1]+1 if i>=4 and p[i]>p[i-4] else 0
+                bc[i] = bc[i-1]+1 if i>=2 and p[i]<p[i-2] else 0
+
+            # chart series (최근 6개월)
+            cutoff = recent.index[-1] - pd.DateOffset(months=6)
+            ch = recent[recent.index >= cutoff]
+            chart_series = {
+                "dates": [str(d.date()) for d in ch.index],
+                "osc": ch["Oscillator"].tolist(),
+                "price": s.reindex(ch.index).tolist(),
+            }
+            results[label] = {
+                "osc": osc,
+                "sentiment": "탐욕" if osc > 0 else "공포",
+                "impulse": imp,
+                "td_sell": int(sc[-1]), "td_buy": int(bc[-1]),
+                "chart": chart_series,
+            }
+
+        if not results: return {"error":"계산 실패"}
+        date_str = str(px.index[-1].date())
+        return {"date": date_str, "results": results,
+                "source": "Yahoo Finance (실현변동성·채권ETF·KOSDAQ상대강도 사용)"}
+    except Exception as e: return {"error": str(e)}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 신규 함수 - 한국 개별종목 RS / 주간 추세판별기 / 거래대금 강도 / 한국 F&G / 컨센 가속
 # ─────────────────────────────────────────────────────────────────────────────
 KR_STOCKS = {k: v for k, v in TICKER_NAMES.items() if k.endswith(".KS") or k.endswith(".KQ")}
@@ -1096,8 +1205,44 @@ with tab2:
 
     st.divider()
 
-    # ── 한국 F&G 오실레이터 (Excel 업로드) ──
-    st.markdown("### 😨 한국 피어앤그리드 오실레이터 (Excel)")
+    # ── 한국 F&G 오실레이터 ──
+    st.markdown("### 😨 한국 피어앤그리드 오실레이터")
+    col_auto, col_xl = st.columns([1, 1])
+    with col_auto:
+        if st.button("▶ 자동 계산 (Yahoo Finance)", key="kr_fg_auto_run", use_container_width=True, type="primary"):
+            with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
+                kr_fg_auto = get_kr_fg_auto()
+            if "error" in kr_fg_auto:
+                st.error(kr_fg_auto["error"])
+            else:
+                st.caption(f"기준일: {kr_fg_auto['date']}  |  {kr_fg_auto.get('source','')}")
+                for label, v in kr_fg_auto["results"].items():
+                    st.markdown(f"**{label}**")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("오실레이터", v["osc"], f"{'🟢' if v['osc']>0 else '🔴'} {v['sentiment']}")
+                    c2.metric("임펄스", v["impulse"])
+                    c3.metric("TD 매도/매수", f"{v['td_sell']} / {v['td_buy']}")
+                    if v.get("chart"):
+                        with st.expander(f"📈 {label} 오실레이터 차트"):
+                            ch = v["chart"]
+                            _fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.45,0.55],
+                                                 vertical_spacing=0.06, subplot_titles=("지수 가격","F&G 오실레이터"))
+                            _fig.add_trace(go.Scatter(x=ch["dates"], y=ch["price"], name="지수",
+                                                       line=dict(color="#E0E0E0",width=1.5)), row=1, col=1)
+                            _osc_colors = ["#00c853" if v2>0 else "#ff4b4b" for v2 in ch["osc"]]
+                            _fig.add_trace(go.Bar(x=ch["dates"], y=ch["osc"], name="Oscillator",
+                                                   marker_color=_osc_colors), row=2, col=1)
+                            _fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
+                            _fig.update_layout(height=400, margin=dict(l=10,r=20,t=40,b=10),
+                                               plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                                               font_color='#e0e0e0', showlegend=False)
+                            _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                            _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                            st.plotly_chart(_fig, use_container_width=True)
+    with col_xl:
+        st.caption("또는 Excel로 정밀 계산 (VKOSPI·P/C 실제 데이터 포함)")
+
+    st.caption("피어앤그리드.xlsx 업로드 시 VKOSPI·실제 PUT/CALL ATM 포함 정밀 버전으로 계산됩니다")
     st.caption("피어앤그리드.xlsx 업로드 필요 (KOSPI / KOSDAQ 시트 포함)")
     fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
     if fg_file:
