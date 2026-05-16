@@ -281,15 +281,14 @@ _FALLBACK = {
 
 def get_market_summary():
     try:
-        import FinanceDataReader as fdr
         start=_td_back(5); end=datetime.today().strftime("%Y-%m-%d")
-        kospi=fdr.DataReader("KS11",start,end); kosdaq=fdr.DataReader("KQ11",start,end)
-        if kospi.empty or kosdaq.empty: return {"error":"데이터 없음"}
-        kp=kospi.iloc[-1]; kq=kosdaq.iloc[-1]
-        kp_prev=kospi.iloc[-2] if len(kospi)>=2 else kp; kq_prev=kosdaq.iloc[-2] if len(kosdaq)>=2 else kq
-        return {"date":kospi.index[-1].strftime("%Y-%m-%d"),
-                "kospi":{"close":round(kp["Close"],2),"chg_pct":round((kp["Close"]/kp_prev["Close"]-1)*100,2),"week_pct":round((kp["Close"]/kospi.iloc[0]["Close"]-1)*100,2)},
-                "kosdaq":{"close":round(kq["Close"],2),"chg_pct":round((kq["Close"]/kq_prev["Close"]-1)*100,2),"week_pct":round((kq["Close"]/kosdaq.iloc[0]["Close"]-1)*100,2)}}
+        kp_close=_close("^KS11",start=start,end=end); kq_close=_close("^KQ11",start=start,end=end)
+        if kp_close.empty or kq_close.empty: return {"error":"데이터 없음"}
+        kp_last=float(kp_close.iloc[-1]); kp_prev=float(kp_close.iloc[-2]) if len(kp_close)>=2 else kp_last
+        kq_last=float(kq_close.iloc[-1]); kq_prev=float(kq_close.iloc[-2]) if len(kq_close)>=2 else kq_last
+        return {"date":kp_close.index[-1].strftime("%Y-%m-%d"),
+                "kospi":{"close":round(kp_last,2),"chg_pct":round((kp_last/kp_prev-1)*100,2),"week_pct":round((kp_last/float(kp_close.iloc[0])-1)*100,2)},
+                "kosdaq":{"close":round(kq_last,2),"chg_pct":round((kq_last/kq_prev-1)*100,2),"week_pct":round((kq_last/float(kq_close.iloc[0])-1)*100,2)}}
     except Exception as e: return {"error":str(e)}
 
 def get_sector_performance():
@@ -305,20 +304,18 @@ def get_sector_performance():
 
 def get_supply_oscillator():
     try:
-        import FinanceDataReader as fdr
         start=_td_back(25); end=datetime.today().strftime("%Y-%m-%d")
-        kospi=fdr.DataReader("KS11",start,end)
-        if kospi.empty or len(kospi)<5: return {"error":"데이터 부족"}
-        kp_close=kospi["Close"]
+        kp_close=_close("^KS11",start=start,end=end)
+        if kp_close.empty or len(kp_close)<5: return {"error":"데이터 부족"}
         kp_ma5=kp_close.rolling(5).mean().iloc[-1]
         kp_ma20=kp_close.rolling(20).mean().iloc[-1] if len(kp_close)>=20 else kp_close.mean()
         kp_osc=(kp_ma5/kp_ma20-1)*100
         results={"kospi_osc":round(kp_osc,2),"sectors":{}}
         for code,name in SECTOR_ETFS.items():
             try:
-                df=fdr.DataReader(code,start,end)
-                if df.empty or len(df)<5: continue
-                close=df["Close"]; ma5=close.rolling(5).mean().iloc[-1]
+                close=_close(f"{code}.KS",start=start,end=end)
+                if close.empty or len(close)<5: continue
+                ma5=close.rolling(5).mean().iloc[-1]
                 ma20=close.rolling(20).mean().iloc[-1] if len(close)>=20 else close.mean()
                 osc=(ma5/ma20-1)*100; rel=osc-kp_osc
                 results["sectors"][name]={"rel_osc":round(rel,2)}
@@ -332,7 +329,6 @@ def get_supply_oscillator():
 
 def get_binzip_stocks(supply_data=None, top_n=5):
     try:
-        import FinanceDataReader as fdr
         lead_sectors=[n for n,_ in supply_data["strong"]][:2] if supply_data and "error" not in supply_data and supply_data.get("strong") else ["반도체","정보기술"]
         all_stocks=[]; seen=set()
         for sn in lead_sectors:
@@ -342,15 +338,15 @@ def get_binzip_stocks(supply_data=None, top_n=5):
         start=_td_back(65); end=datetime.today().strftime("%Y-%m-%d")
         kp_rs60=0.0; kp_rs20=0.0
         try:
-            kp=fdr.DataReader("KS11",start,end)["Close"]
+            kp=_close("^KS11",start=start,end=end)
             if len(kp)>=21: kp_rs60=(kp.iloc[-1]/kp.iloc[0]-1)*100; kp_rs20=(kp.iloc[-1]/kp.iloc[-21]-1)*100
         except: pass
         candidates=[]
         for s in all_stocks:
             try:
-                df=fdr.DataReader(s["code"],start,end)
-                if df.empty or len(df)<20: continue
-                close=df["Close"]; n=len(close); now=float(close.iloc[-1])
+                close=_close(f"{s['code']}.KS",start=start,end=end)
+                if close.empty or len(close)<20: continue
+                n=len(close); now=float(close.iloc[-1])
                 ma60=float(close.rolling(min(60,n)).mean().iloc[-1])
                 rs60=(now/float(close.iloc[0])-1)*100-kp_rs60
                 rel20=((now/float(close.iloc[-21])-1)*100 if n>=21 else 0.0)-kp_rs20
