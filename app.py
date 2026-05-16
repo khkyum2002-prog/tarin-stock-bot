@@ -166,6 +166,8 @@ _FALLBACK = {
     "정보기술":[("005930","삼성전자"),("000660","SK하이닉스"),("035420","NAVER"),("035720","카카오")],
 }
 
+NAME_TO_TICKER = {v.lower(): k for k, v in TICKER_NAMES.items()}
+
 NAVER_ETF_URL = "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0"
 HEADERS = {"User-Agent":"Mozilla/5.0","Referer":"https://finance.naver.com"}
 SP500_TOP100 = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","TSLA","LLY","AVGO","JPM","UNH","XOM","V","MA","PG","JNJ","HD","COST","ABBV","MRK","NFLX","CVX","BAC","CRM","ORCL","AMD","PEP","ACN","WMT","LIN","MCD","CSCO","TMO","ADBE","PLTR","TMUS","INTU","GE","IBM","CAT","PM","AMGN","TXN","NOW","ISRG","QCOM","UBER","GS","VZ","HON","RTX","SPGI","DHR","NEE","MS","LOW","T","UNP","BKNG","AXP","SCHW","C","BLK","SYK","GILD","PFE","DE","MDT","BA","AMAT","ADI","LRCX","PANW","MU","TJX","ETN","VRTX","KLAC","SBUX","CB","MMC","SO","DUK","BSX","REGN","PLD","CI","ZTS","ICE","CME","WM","APH","MCO","SNPS","CDNS","ITW","NOC","EMR"]
@@ -767,24 +769,35 @@ with tab3:
 
     st.markdown("### 🎯 매수 타점 통계 분석")
     st.caption("1년 데이터 기반 — 고가/저가/시가 평균 괴리율 (지정가 매수 참고용)")
-    ticker_input = st.text_input("티커 입력 (쉼표로 여러 개 가능)", placeholder="NVDA, AAPL, 005930.KS", key="bt_ticker")
+
+    _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()])
+    sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
+    ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
+
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
+        tickers_to_run = []
+        if sel_stock:
+            _t = sel_stock.split("(")[-1].rstrip(")")
+            tickers_to_run.append(_t.strip())
         if ticker_input:
-            for t in [x.strip() for x in ticker_input.split(",") if x.strip()]:
-                with st.spinner(f"{t} 분석 중..."):
-                    res=get_buy_timing(t)
-                if "error" in res:
-                    st.error(f"❌ {t}: {res['error']}")
-                else:
-                    kr=TICKER_NAMES.get(t, res.get("name",""))
-                    st.markdown(f"#### 📌 **{t}** {kr} — 현재가: `{res['price']:,}`")
-                    c1,c2=st.columns(2)
-                    c1.metric("고가→종가 평균 하락",f"{res['고가종가하락']:+.2f}%",help="장중 고점 대비 종가 평균 낙폭. 지정가보다 높게 올라갔다가 내려오는 정도")
-                    c2.metric("전일종가→당일저가 괴리",f"{res['저가종가괴리']:+.2f}%",help="전일 종가 대비 당일 저가 평균 괴리. 갭하락 포함")
-                    c1.metric("시가→저가 평균 낙폭",f"{res['시가저가괴리']:+.2f}%",help="시가 기준 장중 최대 낙폭 평균")
-                    c2.metric("전일종가→당일고가",f"{res['전일종가고가']:+.2f}%",help="전일 종가 대비 당일 고가 평균 괴리율")
-                    c1.metric("시가→당일고가 평균",f"{res['시가고가괴리']:+.2f}%",help="시가 대비 장중 고점까지 평균 상승폭")
-                    st.caption(f"💡 매수 타이밍 힌트: 시가 대비 저가 괴리({res['시가저가괴리']:+.2f}%) 활용 → 시가보다 그 정도 낮게 지정가 설정")
-                    st.divider()
-        else:
-            st.warning("티커를 입력해주세요 (예: NVDA)")
+            for raw in [x.strip() for x in ticker_input.split(",") if x.strip()]:
+                resolved = NAME_TO_TICKER.get(raw.lower(), raw)
+                tickers_to_run.append(resolved)
+        if not tickers_to_run:
+            st.warning("종목을 선택하거나 입력해주세요.")
+        for t in tickers_to_run:
+            with st.spinner(f"{t} 분석 중..."):
+                res = get_buy_timing(t)
+            if "error" in res:
+                st.error(f"❌ {t}: {res['error']}")
+            else:
+                kr = TICKER_NAMES.get(t, res.get("name", ""))
+                st.markdown(f"#### 📌 **{t}** {kr} — 현재가: `{res['price']:,}`")
+                c1,c2 = st.columns(2)
+                c1.metric("고가→종가 평균 하락", f"{res['고가종가하락']:+.2f}%", help="장중 고점 대비 종가 평균 낙폭. 지정가보다 높게 올라갔다가 내려오는 정도")
+                c2.metric("전일종가→당일저가 괴리", f"{res['저가종가괴리']:+.2f}%", help="전일 종가 대비 당일 저가 평균 괴리. 갭하락 포함")
+                c1.metric("시가→저가 평균 낙폭", f"{res['시가저가괴리']:+.2f}%", help="시가 기준 장중 최대 낙폭 평균")
+                c2.metric("전일종가→당일고가", f"{res['전일종가고가']:+.2f}%", help="전일 종가 대비 당일 고가 평균 괴리율")
+                c1.metric("시가→당일고가 평균", f"{res['시가고가괴리']:+.2f}%", help="시가 대비 장중 고점까지 평균 상승폭")
+                st.caption(f"💡 힌트: 시가 대비 저가 괴리({res['시가저가괴리']:+.2f}%) → 시가보다 그 정도 낮게 지정가 설정")
+                st.divider()
