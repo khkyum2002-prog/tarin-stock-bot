@@ -10,9 +10,9 @@ from sklearn.preprocessing import MinMaxScaler
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
-st.set_page_config(page_title="태린이 주식봇", page_icon="📈", layout="centered")
+st.set_page_config(page_title="퇴근길 주식", page_icon="📈", layout="centered")
 
-st.title("📈 태린이 주식봇")
+st.title("📈 퇴근길 주식")
 st.caption(f"오늘: {datetime.today().strftime('%Y-%m-%d (%A)').replace('Monday','월요일').replace('Tuesday','화요일').replace('Wednesday','수요일').replace('Thursday','목요일').replace('Friday','금요일').replace('Saturday','토요일').replace('Sunday','일요일')}")
 
 tab1, tab2 = st.tabs(["🌎 미국 지표", "🇰🇷 국내 지표"])
