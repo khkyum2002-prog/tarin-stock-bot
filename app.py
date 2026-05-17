@@ -1535,9 +1535,13 @@ with tab2:
             df_kq = pd.read_excel(fg_file, sheet_name="KOSDAQ", engine="openpyxl")
             _df_call_oi = _df_put_oi = None
             try:
-                fg_file.seek(0); _df_call_oi = pd.read_excel(fg_file, sheet_name="코스피200옵션 콜미결제 거래량", engine="openpyxl")
-                fg_file.seek(0); _df_put_oi  = pd.read_excel(fg_file, sheet_name="코스피200옵션 풋미결제 거래량", engine="openpyxl")
-                st.caption("✅ 콜/풋 미결제 시트 감지 → 외국인 P/C 비율 정밀 계산 적용")
+                _xl_sheets = pd.ExcelFile(fg_file, engine="openpyxl").sheet_names
+                _call_sn = next((s for s in _xl_sheets if '콜' in s), None)
+                _put_sn  = next((s for s in _xl_sheets if '풋' in s), None)
+                if _call_sn and _put_sn:
+                    fg_file.seek(0); _df_call_oi = pd.read_excel(fg_file, sheet_name=_call_sn, engine="openpyxl")
+                    fg_file.seek(0); _df_put_oi  = pd.read_excel(fg_file, sheet_name=_put_sn,  engine="openpyxl")
+                    st.caption(f"✅ 콜/풋 시트 감지 ({_call_sn} / {_put_sn}) → 외국인 P/C 비율 정밀 계산 적용")
             except: pass
             kr_fg = calc_kr_fg_excel(df_kp, df_kq, _df_call_oi, _df_put_oi)
             if "error" in kr_fg:
