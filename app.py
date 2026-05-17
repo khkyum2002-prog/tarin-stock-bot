@@ -880,10 +880,11 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
     except Exception as e: return {"error":str(e)}
 
 def get_kr_supply_auto(top_n=20, days=20):
-    """네이버 파이낸스 외국인 순매수 자동 스크리닝 (무료 데이터)"""
+    """네이버 파이낸스 외국인 순매수 자동 스크리닝 + 수급 오실레이터 차트"""
     import concurrent.futures
     from bs4 import BeautifulSoup
 
+    CHART_DAYS = 60  # 오실레이터 차트용 60일 데이터 (3페이지)
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://finance.naver.com/"
@@ -897,83 +898,84 @@ def get_kr_supply_auto(top_n=20, days=20):
         ticker, name = args
         code = ticker.replace(".KS","").replace(".KQ","")
         try:
-            url = f"https://finance.naver.com/item/frgn.naver?code={code}&page=1"
-            r = requests.get(url, headers=hdrs, timeout=12)
-            if r.status_code != 200:
-                return None
-            soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
-            tables = soup.find_all("table")
-            if len(tables) < 4:
-                return None
             rows_data = []
-            for row in tables[3].find_all("tr"):
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                if len(cells) >= 6 and cells[0] and "." in cells[0]:
-                    try:
-                        close = _parse_num(cells[1])
-                        net_qty = _parse_num(cells[5])
-                        if close > 0:
-                            rows_data.append({"close": close, "net_qty": net_qty,
-                                              "net_val": net_qty * close, "date": cells[0]})
-                    except:
-                        pass
-            if not rows_data:
-                return None
-            df_s = pd.DataFrame(rows_data[:days])
-            net_20d_val = int(df_s["net_val"].sum())
-            net_20d_qty = int(df_s["net_qty"].sum())
-            latest_close = int(df_s["close"].iloc[0])
-            daily_vals = df_s["net_val"].tolist()
-            dates_list = df_s["date"].tolist()
+            pages_needed = (CHART_DAYS // 20) + 1
+            for pg in range(1, pages_needed + 1):
+                url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
+                r = requests.get(url, headers=hdrs, timeout=12)
+                if r.status_code != 200: break
+                soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
+                tables = soup.find_all("table")
+                if len(tables) < 4: break
+                for row in tables[3].find_all("tr"):
+                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                    if len(cells) >= 6 and cells[0] and "." in cells[0]:
+                        try:
+                            close = _parse_num(cells[1])
+                            net_qty = _parse_num(cells[5])
+                            if close > 0:
+                                rows_data.append({"close": close, "net_qty": net_qty,
+                                                  "net_val": net_qty * close, "date": cells[0]})
+                        except: pass
+                if len(rows_data) >= CHART_DAYS: break
+
+            if not rows_data: return None
+
+            # 최신순 → 오래된 순으로 정렬 (차트용)
+            df_s = pd.DataFrame(rows_data[:CHART_DAYS]).iloc[::-1].reset_index(drop=True)
+            df_s["net_bil"] = df_s["net_val"] / 100_000_000  # 억원
+
+            # 오실레이터: 5일 MA (시그널), 20일 누적합
+            df_s["ma5"]   = df_s["net_bil"].rolling(5, min_periods=1).mean()
+            df_s["cum20"] = df_s["net_bil"].rolling(days, min_periods=1).sum()
+
+            # 집계 기간(days) 기준 순매수 합계 (최신 N일)
+            net_nd_val = int(df_s["net_val"].tail(days).sum())
+            latest_close = int(df_s["close"].iloc[-1])
+
             return {
                 "ticker": ticker, "name": name, "code": code,
-                "net_20d_val": net_20d_val, "net_20d_qty": net_20d_qty,
+                "net_nd_val": net_nd_val,
+                "net_nd_bil": round(net_nd_val / 100_000_000, 1),
                 "latest_close": latest_close,
-                "chart_dates": dates_list[::-1],
-                "chart_vals": [v // 100_000_000 for v in daily_vals[::-1]],  # 억원
+                "chart": {
+                    "dates":  df_s["date"].tolist(),
+                    "price":  df_s["close"].tolist(),
+                    "daily":  [round(v, 1) for v in df_s["net_bil"].tolist()],
+                    "ma5":    [round(v, 1) for v in df_s["ma5"].tolist()],
+                    "cum20":  [round(v, 1) for v in df_s["cum20"].tolist()],
+                },
             }
-        except:
-            return None
+        except: return None
 
     stock_list = [(t, n) for t, n in KR_STOCKS.items()]
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
         futs = {ex.submit(fetch_stock, s): s for s in stock_list}
         for fut in concurrent.futures.as_completed(futs):
             res = fut.result()
-            if res:
-                results.append(res)
+            if res: results.append(res)
 
     if not results:
         return {"error": "데이터 수집 실패"}
 
-    df_res = pd.DataFrame(results)
-    df_res["net_20d_bil"] = df_res["net_20d_val"] / 100_000_000
-    df_res_sorted = df_res.sort_values("net_20d_val", ascending=False).reset_index(drop=True)
+    df_res = pd.DataFrame([{k: v for k, v in r.items() if k != "chart"} for r in results])
+    df_res_sorted = df_res.sort_values("net_nd_val", ascending=False).reset_index(drop=True)
+    chart_map = {r["ticker"]: r["chart"] for r in results}
 
-    top20 = df_res_sorted.head(top_n)[["ticker","name","latest_close","net_20d_bil"]].copy()
-    top20.columns = ["ticker","종목명","현재가","20일외국인순매수(억)"]
-    top20["20일외국인순매수(억)"] = top20["20일외국인순매수(억)"].round(1)
+    top20_rows  = df_res_sorted.head(top_n).to_dict("records")
+    worst20_rows = df_res_sorted.tail(top_n).sort_values("net_nd_val").to_dict("records")
 
-    worst20 = df_res_sorted.tail(top_n)[["ticker","name","latest_close","net_20d_bil"]].copy()
-    worst20 = worst20.sort_values("net_20d_bil").reset_index(drop=True)
-    worst20.columns = ["ticker","종목명","현재가","20일외국인순매수(억)"]
-    worst20["20일외국인순매수(억)"] = worst20["20일외국인순매수(억)"].round(1)
-
-    # Chart data: cumulative daily net buying for TOP5
-    top5_chart = []
-    for _, row in df_res_sorted.head(5).iterrows():
-        top5_chart.append({
-            "name": row["name"], "dates": row["chart_dates"], "vals": row["chart_vals"]
-        })
+    for row in top20_rows + worst20_rows:
+        row["chart"] = chart_map.get(row["ticker"])
 
     return {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "scanned": len(results),
-        "top20": top20.to_dict("records"),
-        "worst20": worst20.to_dict("records"),
-        "top5_chart": top5_chart,
-        "note": "외국인 순매수량 × 종가 (20거래일 누적) 기준 | 출처: 네이버 파이낸스"
+        "days": days,
+        "top20": top20_rows,
+        "worst20": worst20_rows,
+        "note": f"외국인 순매수량 × 종가 ({days}거래일 누적) | 출처: 네이버 파이낸스"
     }
 
 def get_kr_consensus_auto(top_n=20):
@@ -1498,45 +1500,76 @@ with tab2:
     with col_sb:
         st.caption(f"현재 설정: 최근 {supply_days}거래일 외국인 순매수 누적 (순매수량 × 종가)")
     if st.button("▶ 수급 자동 스크리닝 실행", key="kr_supply_auto_run", use_container_width=True):
-        with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 수급 데이터 수집 중... (30~60초)"):
+        with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 수급 데이터 수집 중... (40~70초)"):
             sup = get_kr_supply_auto(top_n=20, days=supply_days)
         if "error" in sup:
             st.error(f"수집 오류: {sup['error']}")
         else:
             st.caption(f"기준일: {sup['date']} | 스캔 종목: {sup['scanned']}개 | {sup['note']}")
+
+            def _draw_supply_osc(row, label_prefix=""):
+                """수급 오실레이터 차트 — 가격(우축) + 일별순매수바+MA5(좌축)"""
+                ch = row.get("chart")
+                if not ch: return
+                val = row["net_nd_bil"]
+                sign = "+" if val >= 0 else ""
+                with st.expander(f"📊 {label_prefix}{row['name']} ({row['ticker']}) — {sign}{val:.1f}억"):
+                    bar_colors = ["#00c853" if v >= 0 else "#ff4b4b" for v in ch["daily"]]
+                    fig_s = make_subplots(specs=[[{"secondary_y": True}]])
+                    # 일별 순매수 (좌축, 막대)
+                    fig_s.add_trace(go.Bar(
+                        x=ch["dates"], y=ch["daily"],
+                        name="일별 순매수(억)", marker_color=bar_colors, opacity=0.7,
+                    ), secondary_y=False)
+                    # 5일 MA 시그널 (좌축, 선)
+                    fig_s.add_trace(go.Scatter(
+                        x=ch["dates"], y=ch["ma5"],
+                        name="MA5", line=dict(color="#FF8C00", width=2),
+                    ), secondary_y=False)
+                    # 20일 누적합 (좌축, 점선)
+                    fig_s.add_trace(go.Scatter(
+                        x=ch["dates"], y=ch["cum20"],
+                        name=f"{supply_days}일 누적", line=dict(color="#6A5ACD", width=1.5, dash="dot"),
+                    ), secondary_y=False)
+                    # 종가 (우축, 선)
+                    fig_s.add_trace(go.Scatter(
+                        x=ch["dates"], y=ch["price"],
+                        name="종가", line=dict(color="#E0E0E0", width=2),
+                    ), secondary_y=True)
+                    fig_s.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)",
+                                    secondary_y=False)
+                    fig_s.update_layout(
+                        height=400, margin=dict(l=10, r=60, t=30, b=10),
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e0e0", barmode="overlay",
+                        legend=dict(orientation="h", y=1.08),
+                    )
+                    fig_s.update_yaxes(title_text="순매수(억원)", secondary_y=False,
+                                       showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    fig_s.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
+                    fig_s.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(fig_s, use_container_width=True)
+
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**🟢 외국인 순매수 TOP20**")
                 for i, row in enumerate(sup["top20"], 1):
-                    val = row["20일외국인순매수(억)"]
+                    val = row["net_nd_bil"]
                     sign = "+" if val >= 0 else ""
-                    st.markdown(f"`{i:2d}` **{row['종목명']}** ({row['ticker']}) — {sign}{val:.1f}억")
+                    st.markdown(f"`{i:2d}` **{row['name']}** ({row['ticker']}) — {sign}{val:.1f}억")
             with c2:
                 st.markdown("**🔴 외국인 순매도 TOP20**")
                 for i, row in enumerate(sup["worst20"], 1):
-                    val = row["20일외국인순매수(억)"]
+                    val = row["net_nd_bil"]
                     sign = "+" if val >= 0 else ""
-                    st.markdown(f"`{i:2d}` **{row['종목명']}** ({row['ticker']}) — {sign}{val:.1f}억")
-            if sup.get("top5_chart"):
-                with st.expander("📊 외국인 순매수 TOP5 차트"):
-                    _fig_s = go.Figure()
-                    colors_s = ["#00c853","#2196F3","#FF8C00","#9C27B0","#00B3B3"]
-                    for ci, item in enumerate(sup["top5_chart"]):
-                        _fig_s.add_trace(go.Bar(
-                            x=item["dates"], y=item["vals"],
-                            name=item["name"],
-                            marker_color=colors_s[ci % len(colors_s)],
-                        ))
-                    _fig_s.update_layout(
-                        title="외국인 일별 순매수 (억원)", barmode="group",
-                        height=380, margin=dict(l=10,r=20,t=40,b=10),
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font_color="#e0e0e0", yaxis_title="억원",
-                        legend=dict(orientation="h", y=1.12),
-                    )
-                    _fig_s.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    _fig_s.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(_fig_s, use_container_width=True)
+                    st.markdown(f"`{i:2d}` **{row['name']}** ({row['ticker']}) — {sign}{val:.1f}억")
+
+            st.markdown("#### 📈 수급 오실레이터 — 순매수 TOP10")
+            for row in sup["top20"][:10]:
+                _draw_supply_osc(row, "🟢 ")
+            st.markdown("#### 📉 수급 오실레이터 — 순매도 TOP10")
+            for row in sup["worst20"][:10]:
+                _draw_supply_osc(row, "🔴 ")
 
     st.divider()
 
