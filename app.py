@@ -1,4 +1,4 @@
-import time, warnings, logging
+import io, time, warnings, logging
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -1675,39 +1675,49 @@ with tab2:
         "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
         help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
     )
+    if rs_xl_file:
+        rs_xl_file.seek(0); st.session_state["c_rs_bytes"] = rs_xl_file.read()
     if st.button("▶ 개별종목 RS 스크리닝", key="kr_stock_rs_run", use_container_width=True):
-        if rs_xl_file:
-            rs_xl_file.seek(0)
-            _df_rs_close = pd.read_excel(rs_xl_file, sheet_name=0, engine="openpyxl")
+        if "c_rs_bytes" in st.session_state:
+            _df_rs_close = pd.read_excel(io.BytesIO(st.session_state["c_rs_bytes"]), sheet_name=0, engine="openpyxl")
             with st.spinner(f"Excel 로컬 데이터로 RS 계산 중 ({len(_df_rs_close.columns)-2}종목)..."):
-                kr_rs = calc_kr_stock_rs_excel(_df_rs_close, top_n=15)
-            if "error" not in kr_rs:
-                st.caption(f"📂 출처: 종목상대강도데이터.xlsx | {len(_df_rs_close)}행 × {len(_df_rs_close.columns)-2}종목")
+                _tmp_rs = calc_kr_stock_rs_excel(_df_rs_close, top_n=15)
+            if "error" not in _tmp_rs:
+                st.session_state["c_kr_rs"] = _tmp_rs
+                st.session_state["c_kr_rs_src"] = f"📂 종목상대강도데이터.xlsx | {len(_df_rs_close)}행 × {len(_df_rs_close.columns)-2}종목"
+            else:
+                st.error(_tmp_rs["error"])
         else:
             with st.spinner("한국 개별종목 RS 계산 중 (40종목씩 배치)..."):
-                kr_rs = get_kr_stock_rs(top_n=15)
-        if "error" in kr_rs:
-            st.error(kr_rs["error"])
-        else:
-            show = kr_rs.get("strong") or kr_rs.get("all", [])[:15]
-            if show:
-                df_rs = pd.DataFrame(show)
-                st.dataframe(df_rs.rename(columns={"ticker":"티커","name":"종목명","norm_rs":"RS(0~100)","rs_raw":"RS원시값"})[["티커","종목명","RS(0~100)","RS원시값"]],
-                    use_container_width=True, hide_index=True,
-                    column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
-            st.caption(f"전체 {len(kr_rs.get('all',[]))}종목 스캔 / RS≥70 강세 {len(kr_rs.get('strong',[]))}종목")
-            with st.expander("📊 개별종목 RS 차트"):
-                _show=kr_rs.get("strong") or kr_rs.get("all",[])[:15]
-                _show_s=sorted(_show,key=lambda x:x["norm_rs"])
-                _names=[r["name"] for r in _show_s]; _vals=[r["norm_rs"] for r in _show_s]
-                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
-                _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
-                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
-                _fig.update_layout(xaxis_range=[0,110],height=max(300,len(_names)*28),
-                                    margin=dict(l=10,r=50,t=10,b=10),
-                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
-                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
-                st.plotly_chart(_fig,use_container_width=True)
+                _tmp_rs = get_kr_stock_rs(top_n=15)
+            if "error" not in _tmp_rs:
+                st.session_state["c_kr_rs"] = _tmp_rs
+                st.session_state["c_kr_rs_src"] = "📡 Yahoo Finance"
+            else:
+                st.error(_tmp_rs["error"])
+    if "c_kr_rs" in st.session_state:
+        kr_rs = st.session_state["c_kr_rs"]
+        _is_cached = not rs_xl_file and "c_rs_bytes" in st.session_state
+        st.caption(st.session_state.get("c_kr_rs_src", "") + ("  ⚡ 캐시" if _is_cached else ""))
+        show = kr_rs.get("strong") or kr_rs.get("all", [])[:15]
+        if show:
+            df_rs = pd.DataFrame(show)
+            st.dataframe(df_rs.rename(columns={"ticker":"티커","name":"종목명","norm_rs":"RS(0~100)","rs_raw":"RS원시값"})[["티커","종목명","RS(0~100)","RS원시값"]],
+                use_container_width=True, hide_index=True,
+                column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
+        st.caption(f"전체 {len(kr_rs.get('all',[]))}종목 스캔 / RS≥70 강세 {len(kr_rs.get('strong',[]))}종목")
+        with st.expander("📊 개별종목 RS 차트"):
+            _show=kr_rs.get("strong") or kr_rs.get("all",[])[:15]
+            _show_s=sorted(_show,key=lambda x:x["norm_rs"])
+            _names=[r["name"] for r in _show_s]; _vals=[r["norm_rs"] for r in _show_s]
+            _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+            _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
+                                  text=[f"{v:.1f}" for v in _vals],textposition='outside'))
+            _fig.update_layout(xaxis_range=[0,110],height=max(300,len(_names)*28),
+                                margin=dict(l=10,r=50,t=10,b=10),
+                                plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+            _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
+            st.plotly_chart(_fig,use_container_width=True)
 
     st.divider()
 
@@ -1725,35 +1735,40 @@ with tab2:
             etf_rs_xl_file.seek(0)
             df_etf_rs = pd.read_excel(etf_rs_xl_file, sheet_name=_etf_sn, engine="openpyxl")
             with st.spinner(f"ETF RS 계산 중 ({len(df_etf_rs.columns)-2}개 ETF)..."):
-                etf_rs_xl = calc_kr_etf_rs_excel(df_etf_rs, top_n=15)
-            if "error" in etf_rs_xl:
-                st.error(etf_rs_xl["error"])
+                _tmp_etf = calc_kr_etf_rs_excel(df_etf_rs, top_n=15)
+            if "error" not in _tmp_etf:
+                st.session_state["c_etf_rs"] = _tmp_etf
+                st.session_state["c_etf_rs_meta"] = f"📂 시트: {_etf_sn} | {len(df_etf_rs)}행 | 전체 {len(_tmp_etf.get('all',[]))}개 ETF | RS≥70: {len([r for r in _tmp_etf.get('all',[]) if r['norm_rs']>=70])}개"
             else:
-                show_etf = etf_rs_xl.get("strong") or etf_rs_xl.get("all", [])[:15]
-                st.caption(f"📂 시트: {_etf_sn} | {len(df_etf_rs)}행 | 전체 {len(etf_rs_xl.get('all',[]))}개 ETF | RS≥70: {len([r for r in etf_rs_xl.get('all',[]) if r['norm_rs']>=70])}개")
-                if show_etf:
-                    df_etf_show = pd.DataFrame(show_etf)
-                    st.dataframe(
-                        df_etf_show.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"})[["ETF명","RS(0~100)","RS원시","변동성조정모멘텀"]],
-                        use_container_width=True, hide_index=True,
-                        column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")}
-                    )
-                with st.expander("📊 ETF RS 차트 (Excel)"):
-                    _all_etf = etf_rs_xl.get("all", [])[:25]
-                    _all_etf_s = sorted(_all_etf, key=lambda x: x["norm_rs"])
-                    _names_e = [r["name"] for r in _all_etf_s]
-                    _vals_e = [r["norm_rs"] for r in _all_etf_s]
-                    _colors_e = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals_e]
-                    _fig_e = go.Figure(go.Bar(x=_vals_e, y=_names_e, orientation='h', marker_color=_colors_e,
-                                             text=[f"{v:.1f}" for v in _vals_e], textposition='outside'))
-                    _fig_e.update_layout(xaxis_range=[0,110], height=max(320, len(_names_e)*26),
-                                         margin=dict(l=10,r=50,t=10,b=10),
-                                         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
-                    _fig_e.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
-                    _fig_e.add_vline(x=50, line_dash="dash", line_color="#ffc107", opacity=0.5)
-                    st.plotly_chart(_fig_e, use_container_width=True)
+                st.error(_tmp_etf["error"])
         except Exception as e:
             st.error(f"ETF RS 파일 읽기 오류: {e}")
+    if "c_etf_rs" in st.session_state:
+        etf_rs_xl = st.session_state["c_etf_rs"]
+        _is_etf_cached = not etf_rs_xl_file
+        st.caption(st.session_state.get("c_etf_rs_meta", "") + ("  ⚡ 캐시" if _is_etf_cached else ""))
+        show_etf = etf_rs_xl.get("strong") or etf_rs_xl.get("all", [])[:15]
+        if show_etf:
+            df_etf_show = pd.DataFrame(show_etf)
+            st.dataframe(
+                df_etf_show.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"})[["ETF명","RS(0~100)","RS원시","변동성조정모멘텀"]],
+                use_container_width=True, hide_index=True,
+                column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")}
+            )
+        with st.expander("📊 ETF RS 차트 (Excel)"):
+            _all_etf = etf_rs_xl.get("all", [])[:25]
+            _all_etf_s = sorted(_all_etf, key=lambda x: x["norm_rs"])
+            _names_e = [r["name"] for r in _all_etf_s]
+            _vals_e = [r["norm_rs"] for r in _all_etf_s]
+            _colors_e = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals_e]
+            _fig_e = go.Figure(go.Bar(x=_vals_e, y=_names_e, orientation='h', marker_color=_colors_e,
+                                     text=[f"{v:.1f}" for v in _vals_e], textposition='outside'))
+            _fig_e.update_layout(xaxis_range=[0,110], height=max(320, len(_names_e)*26),
+                                 margin=dict(l=10,r=50,t=10,b=10),
+                                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+            _fig_e.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
+            _fig_e.add_vline(x=50, line_dash="dash", line_color="#ffc107", opacity=0.5)
+            st.plotly_chart(_fig_e, use_container_width=True)
 
     st.divider()
 
@@ -1794,55 +1809,60 @@ with tab2:
     fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
     if fg_file:
         try:
-            df_kp = pd.read_excel(fg_file, sheet_name="KOSPI", engine="openpyxl")
             fg_file.seek(0)
-            df_kq = pd.read_excel(fg_file, sheet_name="KOSDAQ", engine="openpyxl")
+            _fg_bytes = fg_file.read()
+            df_kp = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name="KOSPI", engine="openpyxl")
+            df_kq = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name="KOSDAQ", engine="openpyxl")
             _df_call_oi = _df_put_oi = None
             try:
-                _xl_sheets = pd.ExcelFile(fg_file, engine="openpyxl").sheet_names
+                _xl_sheets = pd.ExcelFile(io.BytesIO(_fg_bytes), engine="openpyxl").sheet_names
                 _call_sn = next((s for s in _xl_sheets if '콜' in s), None)
                 _put_sn  = next((s for s in _xl_sheets if '풋' in s), None)
                 if _call_sn and _put_sn:
-                    fg_file.seek(0); _df_call_oi = pd.read_excel(fg_file, sheet_name=_call_sn, engine="openpyxl")
-                    fg_file.seek(0); _df_put_oi  = pd.read_excel(fg_file, sheet_name=_put_sn,  engine="openpyxl")
+                    _df_call_oi = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name=_call_sn, engine="openpyxl")
+                    _df_put_oi  = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name=_put_sn,  engine="openpyxl")
                     st.caption(f"✅ 콜/풋 시트 감지 ({_call_sn} / {_put_sn}) → 외국인 P/C 비율 정밀 계산 적용")
             except: pass
-            kr_fg = calc_kr_fg_excel(df_kp, df_kq, _df_call_oi, _df_put_oi)
-            if "error" in kr_fg:
-                st.error(kr_fg["error"])
+            _tmp_fg = calc_kr_fg_excel(df_kp, df_kq, _df_call_oi, _df_put_oi)
+            if "error" not in _tmp_fg:
+                st.session_state["c_kr_fg"] = _tmp_fg
             else:
-                st.markdown(f"**기준일: {kr_fg['date']}**")
-                c1,c2 = st.columns(2)
-                c1.metric("코스피 오실레이터", kr_fg["kospi_osc"], f"{'🟢' if kr_fg['kospi_osc']>0 else '🔴'} {kr_fg['kospi_sentiment']}")
-                c2.metric("코스닥 오실레이터", kr_fg["kosdaq_osc"], f"{'🟢' if kr_fg['kosdaq_osc']>0 else '🔴'} {kr_fg['kosdaq_sentiment']}")
-                c1.metric("코스피 임펄스", kr_fg["kospi_impulse"]); c2.metric("코스닥 임펄스", kr_fg["kosdaq_impulse"])
-                c1.metric("코스피 TD 매도/매수", f"{kr_fg['kospi_td_sell']} / {kr_fg['kospi_td_buy']}")
-                c2.metric("코스닥 TD 매도/매수", f"{kr_fg['kosdaq_td_sell']} / {kr_fg['kosdaq_td_buy']}")
-                if kr_fg.get("kospi_gap") is not None:
-                    c1.metric("코스피 SuperMA 이격", f"{kr_fg['kospi_gap']:+.2f}%", help="SuperMA = (MA20+MA60+MA120+MA200)/4 기준 이격")
-                if kr_fg.get("kosdaq_gap") is not None:
-                    c2.metric("코스닥 SuperMA 이격", f"{kr_fg['kosdaq_gap']:+.2f}%")
-                if kr_fg.get("chart"):
-                    with st.expander("📈 F&G 오실레이터 차트 (최근 6개월)"):
-                        ch=kr_fg["chart"]
-                        _fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.5,0.5],vertical_spacing=0.06,
-                                           subplot_titles=("코스피 오실레이터","코스닥 오실레이터"))
-                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["kospi_osc"],name="KOSPI Osc",
-                                                   line=dict(color="#6A5ACD",width=2),fill='tozeroy',
-                                                   fillcolor='rgba(106,90,205,0.15)'),row=1,col=1)
-                        _fig.add_trace(go.Scatter(x=ch.get("kosdaq_dates",ch["dates"]),y=ch.get("kosdaq_osc",[]),
-                                                   name="KOSDAQ Osc",line=dict(color="#00B3B3",width=2),
-                                                   fill='tozeroy',fillcolor='rgba(0,179,179,0.15)'),row=2,col=1)
-                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=1,col=1)
-                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
-                        _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10),
-                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
-                                            font_color='#e0e0e0',showlegend=False)
-                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
+                st.error(_tmp_fg["error"])
         except Exception as e:
             st.error(f"파일 읽기 오류: {e}")
+    if "c_kr_fg" in st.session_state:
+        kr_fg = st.session_state["c_kr_fg"]
+        _is_fg_cached = not fg_file
+        st.markdown(f"**기준일: {kr_fg['date']}**" + ("  ⚡ 캐시" if _is_fg_cached else ""))
+        c1,c2 = st.columns(2)
+        c1.metric("코스피 오실레이터", kr_fg["kospi_osc"], f"{'🟢' if kr_fg['kospi_osc']>0 else '🔴'} {kr_fg['kospi_sentiment']}")
+        c2.metric("코스닥 오실레이터", kr_fg["kosdaq_osc"], f"{'🟢' if kr_fg['kosdaq_osc']>0 else '🔴'} {kr_fg['kosdaq_sentiment']}")
+        c1.metric("코스피 임펄스", kr_fg["kospi_impulse"]); c2.metric("코스닥 임펄스", kr_fg["kosdaq_impulse"])
+        c1.metric("코스피 TD 매도/매수", f"{kr_fg['kospi_td_sell']} / {kr_fg['kospi_td_buy']}")
+        c2.metric("코스닥 TD 매도/매수", f"{kr_fg['kosdaq_td_sell']} / {kr_fg['kosdaq_td_buy']}")
+        if kr_fg.get("kospi_gap") is not None:
+            c1.metric("코스피 SuperMA 이격", f"{kr_fg['kospi_gap']:+.2f}%", help="SuperMA = (MA20+MA60+MA120+MA200)/4 기준 이격")
+        if kr_fg.get("kosdaq_gap") is not None:
+            c2.metric("코스닥 SuperMA 이격", f"{kr_fg['kosdaq_gap']:+.2f}%")
+        if kr_fg.get("chart"):
+            with st.expander("📈 F&G 오실레이터 차트 (최근 6개월)"):
+                ch=kr_fg["chart"]
+                _fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.5,0.5],vertical_spacing=0.06,
+                                   subplot_titles=("코스피 오실레이터","코스닥 오실레이터"))
+                _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["kospi_osc"],name="KOSPI Osc",
+                                           line=dict(color="#6A5ACD",width=2),fill='tozeroy',
+                                           fillcolor='rgba(106,90,205,0.15)'),row=1,col=1)
+                _fig.add_trace(go.Scatter(x=ch.get("kosdaq_dates",ch["dates"]),y=ch.get("kosdaq_osc",[]),
+                                           name="KOSDAQ Osc",line=dict(color="#00B3B3",width=2),
+                                           fill='tozeroy',fillcolor='rgba(0,179,179,0.15)'),row=2,col=1)
+                _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=1,col=1)
+                _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
+                _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10),
+                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                    font_color='#e0e0e0',showlegend=False)
+                _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
+                st.plotly_chart(_fig,use_container_width=True)
 
     st.divider()
 
@@ -1968,25 +1988,31 @@ with tab2:
     if consensus_file:
         try:
             df_db = pd.read_excel(consensus_file, sheet_name="db", engine="openpyxl")
-            cons = calc_consensus_excel(df_db)
-            if "error" in cons:
-                st.error(cons["error"])
+            _tmp_cons = calc_consensus_excel(df_db)
+            if "error" not in _tmp_cons:
+                st.session_state["c_consensus"] = _tmp_cons
             else:
-                st.metric("EPS 가속 통과 종목", f"{cons['eps_passed']}개")
-                c1,c2 = st.columns(2)
-                with c1:
-                    st.markdown("**외국인 수급강도 TOP20**")
-                    for i,n in enumerate(cons["foreign_top20"],1): st.markdown(f"`{i:2d}` {n}")
-                with c2:
-                    st.markdown("**기관 수급강도 TOP20**")
-                    for i,n in enumerate(cons["inst_top20"],1): st.markdown(f"`{i:2d}` {n}")
-                if cons["common"]:
-                    st.markdown("**🎯 외국인 & 기관 공통 (교집합)**")
-                    st.success(" · ".join(cons["common"]))
-                else:
-                    st.info("교집합 없음")
+                st.error(_tmp_cons["error"])
         except Exception as e:
             st.error(f"파일 읽기 오류: {e}")
+    if "c_consensus" in st.session_state:
+        cons = st.session_state["c_consensus"]
+        _is_cons_cached = not consensus_file
+        if _is_cons_cached:
+            st.caption("⚡ 캐시")
+        st.metric("EPS 가속 통과 종목", f"{cons['eps_passed']}개")
+        c1,c2 = st.columns(2)
+        with c1:
+            st.markdown("**외국인 수급강도 TOP20**")
+            for i,n in enumerate(cons["foreign_top20"],1): st.markdown(f"`{i:2d}` {n}")
+        with c2:
+            st.markdown("**기관 수급강도 TOP20**")
+            for i,n in enumerate(cons["inst_top20"],1): st.markdown(f"`{i:2d}` {n}")
+        if cons["common"]:
+            st.markdown("**🎯 외국인 & 기관 공통 (교집합)**")
+            st.success(" · ".join(cons["common"]))
+        else:
+            st.info("교집합 없음")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 3: 종목 분석
@@ -2017,6 +2043,15 @@ with tab3:
             "추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
             help="DB 시트 — 주간 OHLCV로 CMF/임펄스/TD 계산 (HTS 원천 데이터)"
         )
+    if trend_supply_file:
+        trend_supply_file.seek(0); st.session_state["c_supply_bytes"] = trend_supply_file.read()
+    if trading_xl_file:
+        trading_xl_file.seek(0); st.session_state["c_trading_bytes"] = trading_xl_file.read()
+    if weekly_xl_file:
+        weekly_xl_file.seek(0); st.session_state["c_weekly_bytes"] = weekly_xl_file.read()
+    _eff_supply = io.BytesIO(st.session_state["c_supply_bytes"]) if not trend_supply_file and "c_supply_bytes" in st.session_state else trend_supply_file
+    _eff_trading = io.BytesIO(st.session_state["c_trading_bytes"]) if not trading_xl_file and "c_trading_bytes" in st.session_state else trading_xl_file
+    _eff_weekly = io.BytesIO(st.session_state["c_weekly_bytes"]) if not weekly_xl_file and "c_weekly_bytes" in st.session_state else weekly_xl_file
 
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
         tickers_to_run = []
@@ -2088,13 +2123,12 @@ with tab3:
                 st.divider()
 
         # ── 추세판별기 주간 Excel (선택) ──
-        if weekly_xl_file:
+        if _eff_weekly:
             try:
-                weekly_xl_file.seek(0)
-                _wk_xl = pd.ExcelFile(weekly_xl_file, engine="openpyxl")
+                _wk_xl = pd.ExcelFile(_eff_weekly, engine="openpyxl")
                 _wk_sn = next((s for s in _wk_xl.sheet_names if 'DB' in s and '2' not in s), _wk_xl.sheet_names[0])
-                weekly_xl_file.seek(0)
-                df_wkxl = pd.read_excel(weekly_xl_file, sheet_name=_wk_sn, engine="openpyxl")
+                if hasattr(_eff_weekly, 'seek'): _eff_weekly.seek(0)
+                df_wkxl = pd.read_excel(_eff_weekly, sheet_name=_wk_sn, engine="openpyxl")
                 wkr = calc_weekly_trend_excel(df_wkxl)
                 if "error" in wkr:
                     st.error(f"추세판별기(주간) Excel 오류: {wkr['error']}")
@@ -2136,13 +2170,12 @@ with tab3:
 
         st.divider()
         # ── 추세판별기 수급 Excel (선택) ──
-        if trend_supply_file:
+        if _eff_supply:
             try:
-                trend_supply_file.seek(0)
-                _tsd_xl = pd.ExcelFile(trend_supply_file, engine="openpyxl")
+                _tsd_xl = pd.ExcelFile(_eff_supply, engine="openpyxl")
                 _tsd_sn = next((s for s in _tsd_xl.sheet_names if 'DB' in s and '2' in s), _tsd_xl.sheet_names[0])
-                trend_supply_file.seek(0)
-                df_tsd = pd.read_excel(trend_supply_file, sheet_name=_tsd_sn, engine="openpyxl")
+                if hasattr(_eff_supply, 'seek'): _eff_supply.seek(0)
+                df_tsd = pd.read_excel(_eff_supply, sheet_name=_tsd_sn, engine="openpyxl")
                 date_col_tsd = df_tsd.columns[0]
                 # 외국인 or 기관 매수 컬럼 탐지
                 buy_col = next((c for c in df_tsd.columns if '매수' in str(c) and ('외국' in str(c) or '기관' in str(c))), None)
@@ -2229,10 +2262,9 @@ with tab3:
 
         st.divider()
         # ── 거래대금 강도 Excel _RotationRate_ (선택) ──
-        if trading_xl_file:
+        if _eff_trading:
             try:
-                trading_xl_file.seek(0)
-                df_txi = pd.read_excel(trading_xl_file, sheet_name=0, engine="openpyxl")
+                df_txi = pd.read_excel(_eff_trading, sheet_name=0, engine="openpyxl")
                 st.markdown('<p class="zone-header">📊 거래대금 강도 〔Excel RotationRate〕</p>', unsafe_allow_html=True)
                 date_col_xi = df_txi.columns[0]
                 rr_col = next((c for c in df_txi.columns if 'Rotation' in str(c) or 'rotation' in str(c) or '회전' in str(c)), None)
