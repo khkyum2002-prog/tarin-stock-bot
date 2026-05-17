@@ -787,7 +787,7 @@ def calc_kr_stock_rs_excel(df_close, top_n=15):
             for win in RS_WINDOWS:
                 if len(log_rel.dropna()) < win:
                     continue
-                ma = log_rel.rolling(win).mean()
+                ma = log_rel.rolling(win, min_periods=win).mean()
                 rs_s = (log_rel - ma).dropna()
                 if not rs_s.empty:
                     raw_vals.append(float(rs_s.iloc[-1] * 100))
@@ -796,12 +796,12 @@ def calc_kr_stock_rs_excel(df_close, top_n=15):
             rs_avg = float(np.mean(raw_vals))
             norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
             # risk-adjusted momentum (3m/6m/12m)
-            r3 = sc.pct_change().rolling(63).mean().iloc[-1]
-            v3 = sc.pct_change().rolling(63).std().iloc[-1]
-            r6 = sc.pct_change().rolling(126).mean().iloc[-1]
-            v6 = sc.pct_change().rolling(126).std().iloc[-1]
-            r12 = sc.pct_change().rolling(252).mean().iloc[-1]
-            v12 = sc.pct_change().rolling(252).std().iloc[-1]
+            r3 = sc.pct_change(fill_method=None).rolling(63).mean().iloc[-1]
+            v3 = sc.pct_change(fill_method=None).rolling(63).std().iloc[-1]
+            r6 = sc.pct_change(fill_method=None).rolling(126).mean().iloc[-1]
+            v6 = sc.pct_change(fill_method=None).rolling(126).std().iloc[-1]
+            r12 = sc.pct_change(fill_method=None).rolling(252).mean().iloc[-1]
+            v12 = sc.pct_change(fill_method=None).rolling(252).std().iloc[-1]
             risk_adj = float(np.nanmean([
                 r3/v3 if v3 and v3 > 0 else np.nan,
                 r6/v6 if v6 and v6 > 0 else np.nan,
@@ -844,7 +844,7 @@ def calc_kr_etf_rs_excel(df_data, top_n=15):
             for win in RS_WINDOWS:
                 if len(rel.dropna()) < win:
                     continue
-                ma = rel.rolling(win).mean()
+                ma = rel.rolling(win, min_periods=win).mean()
                 rs_s = ((rel / ma) - 1).dropna()
                 if not rs_s.empty:
                     raw_vals.append(float(rs_s.iloc[-1] * 100))
@@ -852,12 +852,12 @@ def calc_kr_etf_rs_excel(df_data, top_n=15):
                 continue
             rs_avg = float(np.mean(raw_vals))
             norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
-            r3 = sc.pct_change().rolling(63).mean().iloc[-1]
-            v3 = sc.pct_change().rolling(63).std().iloc[-1]
-            r6 = sc.pct_change().rolling(126).mean().iloc[-1]
-            v6 = sc.pct_change().rolling(126).std().iloc[-1]
-            r12 = sc.pct_change().rolling(252).mean().iloc[-1]
-            v12 = sc.pct_change().rolling(252).std().iloc[-1]
+            r3 = sc.pct_change(fill_method=None).rolling(63).mean().iloc[-1]
+            v3 = sc.pct_change(fill_method=None).rolling(63).std().iloc[-1]
+            r6 = sc.pct_change(fill_method=None).rolling(126).mean().iloc[-1]
+            v6 = sc.pct_change(fill_method=None).rolling(126).std().iloc[-1]
+            r12 = sc.pct_change(fill_method=None).rolling(252).mean().iloc[-1]
+            v12 = sc.pct_change(fill_method=None).rolling(252).std().iloc[-1]
             risk_adj = float(np.nanmean([
                 r3/v3 if v3 and v3 > 0 else np.nan,
                 r6/v6 if v6 and v6 > 0 else np.nan,
