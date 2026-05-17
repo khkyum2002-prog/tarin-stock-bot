@@ -724,35 +724,113 @@ def get_kr_stock_rs(top_n=15):
     except Exception as e: return {"error":str(e)}
 
 def calc_kr_stock_rs_excel(df_close, top_n=15):
-    """종목상대강도데이터.xlsx 종가 시트로 RS 계산 (오프라인)"""
+    """종목상대강도데이터.xlsx 종가 시트로 Mansfield RS 계산 (log-ratio, 60/120/250d)"""
     try:
         date_col = df_close.columns[0]
         df = df_close.copy()
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
         df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
+        df = df.set_index(date_col)
         bench_col = next((c for c in df.columns if '코스피' in str(c)), None)
         if bench_col is None:
             return {"error": "코스피 벤치마크 컬럼 없음"}
-        kospi = pd.to_numeric(df[bench_col], errors='coerce')
+        kospi = pd.to_numeric(df[bench_col], errors='coerce').where(lambda x: x > 0, np.nan)
         name_to_ticker = {v: k for k, v in KR_STOCKS.items()}
-        stock_cols = [c for c in df.columns if c != date_col and c != bench_col]
+        stock_cols = [c for c in df.columns if c != bench_col]
+        RS_WINDOWS = [60, 120, 250]
         all_results = []
         for col in stock_cols:
-            s = pd.to_numeric(df[col], errors='coerce')
-            mask = s.notna() & kospi.notna() & (s > 0) & (kospi > 0)
-            if mask.sum() < 52:
+            s = pd.to_numeric(df[col], errors='coerce').where(lambda x: x > 0, np.nan)
+            common = s.dropna().index.intersection(kospi.dropna().index)
+            if len(common) < 63:
                 continue
-            rel = s[mask] / kospi[mask]
-            ma52 = rel.rolling(52).mean()
-            rs_s = (rel / ma52 - 1).dropna()
-            if rs_s.empty:
+            sc = s.loc[common]; kc = kospi.loc[common]
+            rel = sc / kc
+            log_rel = np.log(rel.replace(0, np.nan))
+            raw_vals = []
+            for win in RS_WINDOWS:
+                if len(log_rel.dropna()) < win:
+                    continue
+                ma = log_rel.rolling(win).mean()
+                rs_s = (log_rel - ma).dropna()
+                if not rs_s.empty:
+                    raw_vals.append(float(rs_s.iloc[-1] * 100))
+            if not raw_vals:
                 continue
-            rs_raw = float(rs_s.iloc[-1] * 100)
-            norm_rs = round(100 * (1 / (1 + np.exp(-rs_raw / 12))), 1)
+            rs_avg = float(np.mean(raw_vals))
+            norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
+            # risk-adjusted momentum (3m/6m/12m)
+            r3 = sc.pct_change().rolling(63).mean().iloc[-1]
+            v3 = sc.pct_change().rolling(63).std().iloc[-1]
+            r6 = sc.pct_change().rolling(126).mean().iloc[-1]
+            v6 = sc.pct_change().rolling(126).std().iloc[-1]
+            r12 = sc.pct_change().rolling(252).mean().iloc[-1]
+            v12 = sc.pct_change().rolling(252).std().iloc[-1]
+            risk_adj = float(np.nanmean([
+                r3/v3 if v3 and v3 > 0 else np.nan,
+                r6/v6 if v6 and v6 > 0 else np.nan,
+                r12/v12 if v12 and v12 > 0 else np.nan
+            ])) * 100
             ticker = name_to_ticker.get(str(col), str(col))
-            all_results.append({"ticker": ticker, "name": str(col), "norm_rs": norm_rs, "rs_raw": round(rs_raw, 1)})
+            all_results.append({"ticker": ticker, "name": str(col), "norm_rs": norm_rs,
+                                 "rs_raw": round(rs_avg, 1), "risk_adj": round(risk_adj, 2)})
         if not all_results:
             return {"error": "RS 계산 결과 없음"}
+        all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
+        strong = [r for r in all_results if r["norm_rs"] >= 70]
+        return {"all": all_results, "strong": strong[:top_n] if strong else all_results[:top_n]}
+    except Exception as e:
+        return {"error": str(e)}
+
+def calc_kr_etf_rs_excel(df_data, top_n=15):
+    """etf상대강도데이터.xlsx 데이터 시트로 ETF RS 계산 (linear Mansfield RS, 60/120/250d)"""
+    try:
+        date_col = df_data.columns[0]
+        df = df_data.copy()
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
+        df = df.set_index(date_col)
+        bench_col = next((c for c in df.columns if '코스피' in str(c)), None)
+        if bench_col is None:
+            return {"error": "코스피 벤치마크 컬럼 없음"}
+        kospi = pd.to_numeric(df[bench_col], errors='coerce').where(lambda x: x > 0, np.nan)
+        etf_cols = [c for c in df.columns if c != bench_col]
+        RS_WINDOWS = [60, 120, 250]
+        all_results = []
+        for col in etf_cols:
+            s = pd.to_numeric(df[col], errors='coerce').where(lambda x: x > 0, np.nan)
+            common = s.dropna().index.intersection(kospi.dropna().index)
+            if len(common) < 63:
+                continue
+            sc = s.loc[common]; kc = kospi.loc[common]
+            rel = sc / kc
+            raw_vals = []
+            for win in RS_WINDOWS:
+                if len(rel.dropna()) < win:
+                    continue
+                ma = rel.rolling(win).mean()
+                rs_s = ((rel / ma) - 1).dropna()
+                if not rs_s.empty:
+                    raw_vals.append(float(rs_s.iloc[-1] * 100))
+            if not raw_vals:
+                continue
+            rs_avg = float(np.mean(raw_vals))
+            norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
+            r3 = sc.pct_change().rolling(63).mean().iloc[-1]
+            v3 = sc.pct_change().rolling(63).std().iloc[-1]
+            r6 = sc.pct_change().rolling(126).mean().iloc[-1]
+            v6 = sc.pct_change().rolling(126).std().iloc[-1]
+            r12 = sc.pct_change().rolling(252).mean().iloc[-1]
+            v12 = sc.pct_change().rolling(252).std().iloc[-1]
+            risk_adj = float(np.nanmean([
+                r3/v3 if v3 and v3 > 0 else np.nan,
+                r6/v6 if v6 and v6 > 0 else np.nan,
+                r12/v12 if v12 and v12 > 0 else np.nan
+            ])) * 100
+            all_results.append({"name": str(col), "norm_rs": norm_rs,
+                                 "rs_raw": round(rs_avg, 1), "risk_adj": round(risk_adj, 2)})
+        if not all_results:
+            return {"error": "ETF RS 계산 결과 없음"}
         all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
         strong = [r for r in all_results if r["norm_rs"] >= 70]
         return {"all": all_results, "strong": strong[:top_n] if strong else all_results[:top_n]}
@@ -981,6 +1059,16 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq, df_call_oi=None, df_put_oi=None):
         kq=calc_fg_local(kq,'코스닥','코스피 200 변동성지수','최근월물 CALL ATM','최근월물 PUT ATM','5년 국채선물 추종 지수','10년국채선물지수')
         kp_osc=round(float(kp['Oscillator'].dropna().iloc[-1]),4); kq_osc=round(float(kq['Oscillator'].dropna().iloc[-1]),4)
         kp_ts,kp_tb=td_local(kp['코스피'].dropna()); kq_ts,kq_tb=td_local(kq['코스닥'].dropna())
+        # SuperMA and GapPct (KOSPI and KOSDAQ)
+        def _super_ma_gap(df, price_col):
+            try:
+                p = pd.to_numeric(df[price_col], errors='coerce')
+                sup = pd.concat([p.rolling(w).mean() for w in [20,60,120,200]], axis=1).mean(axis=1)
+                gap = (p - sup) / sup * 100
+                return round(float(gap.dropna().iloc[-1]), 2), round(float(sup.dropna().iloc[-1]), 2)
+            except: return None, None
+        kp_gap, kp_sup = _super_ma_gap(kp, '코스피')
+        kq_gap, kq_sup = _super_ma_gap(kq, '코스닥')
         cutoff = kp['Date'].max() - pd.DateOffset(months=6)
         ch_kp = kp[kp['Date']>=cutoff].dropna(subset=['Oscillator','코스피'])
         ch_kq = kq[kq['Date']>=kq['Date'].max()-pd.DateOffset(months=6)].dropna(subset=['Oscillator'])
@@ -993,6 +1081,7 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq, df_call_oi=None, df_put_oi=None):
                 "kospi_sentiment":"탐욕" if kp_osc>0 else "공포","kosdaq_sentiment":"탐욕" if kq_osc>0 else "공포",
                 "kospi_impulse":get_impulse_local(kp,'코스피'),"kosdaq_impulse":get_impulse_local(kq,'코스닥'),
                 "kospi_td_sell":kp_ts,"kospi_td_buy":kp_tb,"kosdaq_td_sell":kq_ts,"kosdaq_td_buy":kq_tb,
+                "kospi_gap":kp_gap,"kosdaq_gap":kq_gap,
                 "chart":chart}
     except Exception as e: return {"error":str(e)}
 
@@ -1591,6 +1680,52 @@ with tab2:
 
     st.divider()
 
+    # ── 한국 ETF RS (Excel 정밀) ──
+    st.markdown("### 📊 한국 ETF 상대강도 〔Excel 정밀〕")
+    etf_rs_xl_file = st.file_uploader(
+        "etf상대강도데이터.xlsx 업로드 (데이터 시트 포함)", type=["xlsx"], key="etf_rs_xl_file",
+        help="데이터 시트: DATE + 코스피 + ETF 종가 컬럼 — linear Mansfield RS 60/120/250d"
+    )
+    if etf_rs_xl_file:
+        try:
+            etf_rs_xl_file.seek(0)
+            _etf_xl_sheets = pd.ExcelFile(etf_rs_xl_file, engine="openpyxl").sheet_names
+            _etf_sn = next((s for s in _etf_xl_sheets if '데이터' in s), _etf_xl_sheets[0])
+            etf_rs_xl_file.seek(0)
+            df_etf_rs = pd.read_excel(etf_rs_xl_file, sheet_name=_etf_sn, engine="openpyxl")
+            with st.spinner(f"ETF RS 계산 중 ({len(df_etf_rs.columns)-2}개 ETF)..."):
+                etf_rs_xl = calc_kr_etf_rs_excel(df_etf_rs, top_n=15)
+            if "error" in etf_rs_xl:
+                st.error(etf_rs_xl["error"])
+            else:
+                show_etf = etf_rs_xl.get("strong") or etf_rs_xl.get("all", [])[:15]
+                st.caption(f"📂 시트: {_etf_sn} | {len(df_etf_rs)}행 | 전체 {len(etf_rs_xl.get('all',[]))}개 ETF | RS≥70: {len([r for r in etf_rs_xl.get('all',[]) if r['norm_rs']>=70])}개")
+                if show_etf:
+                    df_etf_show = pd.DataFrame(show_etf)
+                    st.dataframe(
+                        df_etf_show.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"})[["ETF명","RS(0~100)","RS원시","변동성조정모멘텀"]],
+                        use_container_width=True, hide_index=True,
+                        column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")}
+                    )
+                with st.expander("📊 ETF RS 차트 (Excel)"):
+                    _all_etf = etf_rs_xl.get("all", [])[:25]
+                    _all_etf_s = sorted(_all_etf, key=lambda x: x["norm_rs"])
+                    _names_e = [r["name"] for r in _all_etf_s]
+                    _vals_e = [r["norm_rs"] for r in _all_etf_s]
+                    _colors_e = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals_e]
+                    _fig_e = go.Figure(go.Bar(x=_vals_e, y=_names_e, orientation='h', marker_color=_colors_e,
+                                             text=[f"{v:.1f}" for v in _vals_e], textposition='outside'))
+                    _fig_e.update_layout(xaxis_range=[0,110], height=max(320, len(_names_e)*26),
+                                         margin=dict(l=10,r=50,t=10,b=10),
+                                         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+                    _fig_e.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
+                    _fig_e.add_vline(x=50, line_dash="dash", line_color="#ffc107", opacity=0.5)
+                    st.plotly_chart(_fig_e, use_container_width=True)
+        except Exception as e:
+            st.error(f"ETF RS 파일 읽기 오류: {e}")
+
+    st.divider()
+
     # ── 한국 F&G 오실레이터 ──
     st.markdown("### 😨 한국 피어앤그리드 오실레이터")
     st.info(
@@ -1660,6 +1795,10 @@ with tab2:
                 c1.metric("코스피 임펄스", kr_fg["kospi_impulse"]); c2.metric("코스닥 임펄스", kr_fg["kosdaq_impulse"])
                 c1.metric("코스피 TD 매도/매수", f"{kr_fg['kospi_td_sell']} / {kr_fg['kospi_td_buy']}")
                 c2.metric("코스닥 TD 매도/매수", f"{kr_fg['kosdaq_td_sell']} / {kr_fg['kosdaq_td_buy']}")
+                if kr_fg.get("kospi_gap") is not None:
+                    c1.metric("코스피 SuperMA 이격", f"{kr_fg['kospi_gap']:+.2f}%", help="SuperMA = (MA20+MA60+MA120+MA200)/4 기준 이격")
+                if kr_fg.get("kosdaq_gap") is not None:
+                    c2.metric("코스닥 SuperMA 이격", f"{kr_fg['kosdaq_gap']:+.2f}%")
                 if kr_fg.get("chart"):
                     with st.expander("📈 F&G 오실레이터 차트 (최근 6개월)"):
                         ch=kr_fg["chart"]
