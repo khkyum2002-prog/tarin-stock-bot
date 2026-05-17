@@ -821,7 +821,7 @@ def get_trading_intensity(ticker):
                 "chart":{"dates":[str(d.date()) for d in n.index],"ti":n.tolist(),"ti_ma3":ma3_s.tolist(),"ti_signal":sig7_s.tolist()}}
     except Exception as e: return {"error":str(e)}
 
-def calc_kr_fg_excel(df_kospi, df_kosdaq):
+def calc_kr_fg_excel(df_kospi, df_kosdaq, df_call_oi=None, df_put_oi=None):
     try:
         def ensure_date(df):
             if 'Date' not in df.columns: df=df.rename(columns={df.columns[0]:'Date'})
@@ -830,10 +830,14 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
         def calc_rsi_local(df,col,win=10):
             d=df[col].diff(); g=d.where(d>0,0).rolling(win).mean(); l=(-d.where(d<0,0)).rolling(win).mean()
             df['RSI_10']=100-(100/(1+g/l.replace(0,np.nan))); return df
-        def calc_fg_local(df,pc,vc,cc,ptc,b5,b10):
+        def calc_fg_local(df,pc,vc,cc,ptc,b5,b10,frgn_pc_col=None):
             df=df.copy(); df['MA125']=df[pc].rolling(125).mean()
             df['Momentum']=(df[pc]-df['MA125'])/df['MA125']*100
-            df['PutCall']=df[ptc]/df[cc].replace(0,np.nan); df['Volatility']=df[vc]; df['BondDiff']=df[b10]-df[b5]
+            if frgn_pc_col and frgn_pc_col in df.columns:
+                df['PutCall']=df[frgn_pc_col]
+            else:
+                df['PutCall']=df[ptc]/df[cc].replace(0,np.nan)
+            df['Volatility']=df[vc]; df['BondDiff']=df[b10]-df[b5]
             df.replace([np.inf,-np.inf],np.nan,inplace=True)
             feats=['Momentum','PutCall','Volatility','BondDiff','RSI_10']; valid=df.dropna(subset=feats).index
             if len(valid)==0: return df
@@ -860,7 +864,26 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
         for c in ['5년 국채선물 추종 지수','10년국채선물지수','코스피 200 변동성지수','코스닥','최근월물 CALL ATM','최근월물 PUT ATM']:
             kq[c]=pd.to_numeric(kq[c],errors='coerce')
         kp=calc_rsi_local(kp,'코스피'); kq=calc_rsi_local(kq,'코스닥')
-        kp=calc_fg_local(kp,'코스피','코스피 200 변동성지수','최근월물 CALL ATM','최근월물 PUT ATM','5년 국채선물 추종 지수','10년국채선물지수')
+        # 콜/풋 미결제 시트 → 외국인 P/C 비율 정밀 계산
+        frgn_pc_col = None
+        if df_call_oi is not None and df_put_oi is not None:
+            try:
+                def _prep_oi(df):
+                    df = df.copy().rename(columns={df.columns[0]: 'Date'})
+                    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+                    df = df.dropna(subset=['Date'])
+                    fc = next((c for c in df.columns if '외국인' in c), None)
+                    if not fc: return pd.Series(dtype=float)
+                    s = pd.to_numeric(df[fc], errors='coerce')
+                    s.index = df['Date'].values
+                    return s
+                call_s = _prep_oi(df_call_oi); put_s = _prep_oi(df_put_oi)
+                oi_df = pd.DataFrame({'call': call_s, 'put': put_s}).dropna()
+                oi_df['Frgn_PC_Ratio'] = oi_df['put'] / oi_df['call'].replace(0, np.nan)
+                kp = kp.set_index('Date').join(oi_df[['Frgn_PC_Ratio']], how='left').reset_index()
+                if kp['Frgn_PC_Ratio'].notna().sum() > 10: frgn_pc_col = 'Frgn_PC_Ratio'
+            except: pass
+        kp=calc_fg_local(kp,'코스피','코스피 200 변동성지수','최근월물 CALL ATM','최근월물 PUT ATM','5년 국채선물 추종 지수','10년국채선물지수',frgn_pc_col)
         kq=calc_fg_local(kq,'코스닥','코스피 200 변동성지수','최근월물 CALL ATM','최근월물 PUT ATM','5년 국채선물 추종 지수','10년국채선물지수')
         kp_osc=round(float(kp['Oscillator'].dropna().iloc[-1]),4); kq_osc=round(float(kq['Oscillator'].dropna().iloc[-1]),4)
         kp_ts,kp_tb=td_local(kp['코스피'].dropna()); kq_ts,kq_tb=td_local(kq['코스닥'].dropna())
@@ -1510,7 +1533,13 @@ with tab2:
             df_kp = pd.read_excel(fg_file, sheet_name="KOSPI", engine="openpyxl")
             fg_file.seek(0)
             df_kq = pd.read_excel(fg_file, sheet_name="KOSDAQ", engine="openpyxl")
-            kr_fg = calc_kr_fg_excel(df_kp, df_kq)
+            _df_call_oi = _df_put_oi = None
+            try:
+                fg_file.seek(0); _df_call_oi = pd.read_excel(fg_file, sheet_name="코스피200옵션 콜미결제 거래량", engine="openpyxl")
+                fg_file.seek(0); _df_put_oi  = pd.read_excel(fg_file, sheet_name="코스피200옵션 풋미결제 거래량", engine="openpyxl")
+                st.caption("✅ 콜/풋 미결제 시트 감지 → 외국인 P/C 비율 정밀 계산 적용")
+            except: pass
+            kr_fg = calc_kr_fg_excel(df_kp, df_kq, _df_call_oi, _df_put_oi)
             if "error" in kr_fg:
                 st.error(kr_fg["error"])
             else:
@@ -1711,6 +1740,20 @@ with tab3:
     sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
     ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
 
+    st.divider()
+    st.caption("📂 추가 Excel 업로드 (선택) — 업로드 시 자동 계산과 함께 정밀 비교 표시")
+    _col_xu1, _col_xu2 = st.columns(2)
+    with _col_xu1:
+        trend_supply_file = st.file_uploader(
+            "추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
+            help="DB(2) 시트 — 5일간 외국 순매수수량 오실레이터 추가"
+        )
+    with _col_xu2:
+        trading_xl_file = st.file_uploader(
+            "국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
+            help="_RotationRate_ 컬럼 — 거래대금 강도 비교 표시"
+        )
+
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
         tickers_to_run = []
         if sel_stock:
@@ -1781,6 +1824,51 @@ with tab3:
                 st.divider()
 
         st.divider()
+        # ── 추세판별기 수급 Excel (선택) ──
+        if trend_supply_file:
+            try:
+                trend_supply_file.seek(0)
+                df_tsd = pd.read_excel(trend_supply_file, sheet_name="DB(2)", engine="openpyxl")
+                st.markdown("### 🏦 추세판별기 외국인 수급 〔Excel 정밀〕")
+                date_col_tsd = df_tsd.columns[0]
+                frgn_buy_col = next((c for c in df_tsd.columns if '순매수' in c and '외국' in c), None)
+                frgn_sell_col = next((c for c in df_tsd.columns if '매도' in c and '외국' in c), None)
+                close_col_tsd = next((c for c in df_tsd.columns if '종가' in c), None)
+                if frgn_buy_col and close_col_tsd:
+                    df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
+                    df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
+                    df_tsd[frgn_buy_col] = pd.to_numeric(df_tsd[frgn_buy_col], errors='coerce').fillna(0)
+                    df_tsd[close_col_tsd] = pd.to_numeric(df_tsd[close_col_tsd], errors='coerce')
+                    dates_tsd = [str(d.date()) for d in df_tsd[date_col_tsd]]
+                    buy_vals_tsd = df_tsd[frgn_buy_col].tolist()
+                    bar_colors_tsd = ["#00c853" if v >= 0 else "#ff4b4b" for v in buy_vals_tsd]
+                    fig_tsd = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_tsd.add_trace(go.Bar(x=dates_tsd, y=buy_vals_tsd, name="5일 외국 순매수수량",
+                                             marker_color=bar_colors_tsd, opacity=0.8), secondary_y=False)
+                    if frgn_sell_col:
+                        df_tsd[frgn_sell_col] = pd.to_numeric(df_tsd[frgn_sell_col], errors='coerce').fillna(0)
+                        fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[frgn_sell_col].tolist(),
+                                                     name="5일 외국 매도수량",
+                                                     line=dict(color="#FF8C00", width=1.5, dash="dot")), secondary_y=False)
+                    fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[close_col_tsd].tolist(), name="종가",
+                                                  line=dict(color="#E0E0E0", width=2)), secondary_y=True)
+                    fig_tsd.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", secondary_y=False)
+                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10),
+                                          plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                                          font_color="#e0e0e0", barmode="overlay",
+                                          legend=dict(orientation="h", y=1.08))
+                    fig_tsd.update_yaxes(title_text="수량", secondary_y=False,
+                                         showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
+                    fig_tsd.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(fig_tsd, use_container_width=True)
+                    st.caption(f"DB(2) 시트 | 컬럼: {frgn_buy_col}")
+                else:
+                    st.warning(f"5일 외국 순매수수량 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)[:8]}")
+            except Exception as e:
+                st.error(f"추세판별기 파일 읽기 오류: {e}")
+
+        st.divider()
         st.markdown("### 💰 거래대금 강도 오실레이터")
         for t in tickers_to_run:
             with st.spinner(f"{t} 거래대금 강도 분석 중..."):
@@ -1819,6 +1907,45 @@ with tab3:
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         st.plotly_chart(_fig,use_container_width=True)
                 st.divider()
+
+        st.divider()
+        # ── 거래대금 강도 Excel _RotationRate_ (선택) ──
+        if trading_xl_file:
+            try:
+                trading_xl_file.seek(0)
+                df_txi = pd.read_excel(trading_xl_file, sheet_name=0, engine="openpyxl")
+                st.markdown("### 📊 거래대금 강도 — _RotationRate_ 〔Excel〕")
+                date_col_xi = df_txi.columns[0]
+                rr_col = next((c for c in df_txi.columns if 'Rotation' in str(c) or 'rotation' in str(c) or '회전' in str(c)), None)
+                close_col_xi = next((c for c in df_txi.columns if '종가' in str(c)), None)
+                if rr_col:
+                    df_txi[date_col_xi] = pd.to_datetime(df_txi[date_col_xi], errors='coerce')
+                    df_txi = df_txi.dropna(subset=[date_col_xi]).sort_values(date_col_xi)
+                    df_txi[rr_col] = pd.to_numeric(df_txi[rr_col], errors='coerce')
+                    dates_xi = [str(d.date()) for d in df_txi[date_col_xi]]
+                    rr_vals = df_txi[rr_col].tolist()
+                    rr_colors = ["#00c853" if (v or 0) >= 0 else "#ff4b4b" for v in rr_vals]
+                    fig_rr = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_rr.add_trace(go.Bar(x=dates_xi, y=rr_vals, name="_RotationRate_",
+                                            marker_color=rr_colors, opacity=0.7), secondary_y=False)
+                    if close_col_xi:
+                        df_txi[close_col_xi] = pd.to_numeric(df_txi[close_col_xi], errors='coerce')
+                        fig_rr.add_trace(go.Scatter(x=dates_xi, y=df_txi[close_col_xi].tolist(), name="종가",
+                                                    line=dict(color="#E0E0E0", width=2)), secondary_y=True)
+                    fig_rr.update_layout(height=340, margin=dict(l=10,r=60,t=30,b=10),
+                                         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                                         font_color="#e0e0e0", barmode="overlay",
+                                         legend=dict(orientation="h", y=1.08))
+                    fig_rr.update_yaxes(title_text="_RotationRate_", secondary_y=False,
+                                        showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    fig_rr.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
+                    fig_rr.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(fig_rr, use_container_width=True)
+                    st.caption(f"컬럼: {rr_col} | 출처: 국장 거래대금 강도 Excel")
+                else:
+                    st.warning(f"_RotationRate_ 컬럼 미감지. 컬럼 목록: {list(df_txi.columns)}")
+            except Exception as e:
+                st.error(f"거래대금 강도 파일 읽기 오류: {e}")
 
         st.divider()
         st.markdown("### 📡 외국인 수급 오실레이터")
