@@ -879,6 +879,57 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq):
                 "chart":chart}
     except Exception as e: return {"error":str(e)}
 
+def get_stock_supply_osc(ticker, chart_days=60, agg_days=20):
+    """단일 한국 종목 수급 오실레이터 — 네이버 파이낸스 외국인 순매수"""
+    from bs4 import BeautifulSoup
+    if not (ticker.endswith(".KS") or ticker.endswith(".KQ")):
+        return {"error": "한국 종목만 지원 (.KS/.KQ)"}
+    code = ticker.replace(".KS","").replace(".KQ","")
+    hdrs = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer":"https://finance.naver.com/"}
+    def _pn(s):
+        try: return int(s.replace(",","").replace("+",""))
+        except: return 0
+    try:
+        rows_data = []
+        pages_needed = (chart_days // 20) + 1
+        for pg in range(1, pages_needed + 1):
+            r = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
+                             headers=hdrs, timeout=12)
+            if r.status_code != 200: break
+            soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
+            tables = soup.find_all("table")
+            if len(tables) < 4: break
+            for row in tables[3].find_all("tr"):
+                cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cells) >= 6 and cells[0] and "." in cells[0]:
+                    try:
+                        close = _pn(cells[1]); net_qty = _pn(cells[5])
+                        if close > 0:
+                            rows_data.append({"date":cells[0],"close":close,
+                                              "net_qty":net_qty,"net_val":net_qty*close})
+                    except: pass
+            if len(rows_data) >= chart_days: break
+        if not rows_data: return {"error":"데이터 없음"}
+        df = pd.DataFrame(rows_data[:chart_days]).iloc[::-1].reset_index(drop=True)
+        df["net_bil"] = df["net_val"] / 100_000_000
+        df["ma5"]    = df["net_bil"].rolling(5, min_periods=1).mean()
+        df["cum20"]  = df["net_bil"].rolling(agg_days, min_periods=1).sum()
+        net_agg = round(float(df["net_bil"].tail(agg_days).sum()), 1)
+        return {
+            "ticker": ticker, "agg_days": agg_days,
+            "net_agg_bil": net_agg,
+            "latest_close": int(df["close"].iloc[-1]),
+            "chart": {
+                "dates": df["date"].tolist(),
+                "price": df["close"].tolist(),
+                "daily": [round(v,1) for v in df["net_bil"].tolist()],
+                "ma5":   [round(v,1) for v in df["ma5"].tolist()],
+                "cum20": [round(v,1) for v in df["cum20"].tolist()],
+            },
+        }
+    except Exception as e: return {"error": str(e)}
+
 def get_kr_supply_auto(top_n=20, days=20):
     """네이버 파이낸스 외국인 순매수 자동 스크리닝 + 수급 오실레이터 차트"""
     import concurrent.futures
@@ -1768,3 +1819,56 @@ with tab3:
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         st.plotly_chart(_fig,use_container_width=True)
                 st.divider()
+
+        st.divider()
+        st.markdown("### 📡 외국인 수급 오실레이터")
+        st.caption("한국 종목(.KS/.KQ)만 지원 | 네이버 파이낸스 외국인 순매수 60일")
+        for t in tickers_to_run:
+            kr = TICKER_NAMES.get(t, "")
+            if not (t.endswith(".KS") or t.endswith(".KQ")):
+                st.info(f"⚠️ {t}: 미국 종목은 수급 오실레이터 미지원")
+                continue
+            with st.spinner(f"{t} {kr} 수급 데이터 수집 중..."):
+                so = get_stock_supply_osc(t, chart_days=60, agg_days=20)
+            if "error" in so:
+                st.error(f"❌ {t} {kr}: {so['error']}")
+                continue
+            st.markdown(f"#### 📌 **{t}** {kr}")
+            sign = "+" if so["net_agg_bil"] >= 0 else ""
+            c1, c2 = st.columns(2)
+            c1.metric("20일 외국인 순매수", f"{sign}{so['net_agg_bil']:.1f}억",
+                      "🟢 순매수" if so["net_agg_bil"] >= 0 else "🔴 순매도")
+            c2.metric("현재가", f"{so['latest_close']:,}원")
+            ch = so["chart"]
+            bar_colors = ["#00c853" if v >= 0 else "#ff4b4b" for v in ch["daily"]]
+            fig_so = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_so.add_trace(go.Bar(
+                x=ch["dates"], y=ch["daily"], name="일별 순매수(억)",
+                marker_color=bar_colors, opacity=0.7,
+            ), secondary_y=False)
+            fig_so.add_trace(go.Scatter(
+                x=ch["dates"], y=ch["ma5"], name="MA5",
+                line=dict(color="#FF8C00", width=2),
+            ), secondary_y=False)
+            fig_so.add_trace(go.Scatter(
+                x=ch["dates"], y=ch["cum20"], name="20일 누적",
+                line=dict(color="#6A5ACD", width=1.5, dash="dot"),
+            ), secondary_y=False)
+            fig_so.add_trace(go.Scatter(
+                x=ch["dates"], y=ch["price"], name="종가",
+                line=dict(color="#E0E0E0", width=2),
+            ), secondary_y=True)
+            fig_so.add_hline(y=0, line_dash="dash",
+                              line_color="rgba(255,255,255,0.3)", secondary_y=False)
+            fig_so.update_layout(
+                height=420, margin=dict(l=10, r=60, t=30, b=10),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#e0e0e0", barmode="overlay",
+                legend=dict(orientation="h", y=1.08),
+            )
+            fig_so.update_yaxes(title_text="순매수(억원)", secondary_y=False,
+                                 showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+            fig_so.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
+            fig_so.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+            st.plotly_chart(fig_so, use_container_width=True)
+            st.divider()
