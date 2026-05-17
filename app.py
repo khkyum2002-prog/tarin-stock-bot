@@ -1413,9 +1413,13 @@ with tab2:
 
     # ── 한국 F&G 오실레이터 ──
     st.markdown("### 😨 한국 피어앤그리드 오실레이터")
+    st.info(
+        "**자동(참고용)**: VKOSPI·채권선물·P/C ATM을 무료 대체지표로 근사 계산 — 방향성 참고 전용\n\n"
+        "**Excel(정밀)**: 실제 VKOSPI·국채선물·Put/Call ATM 데이터 사용 — 원본 로직 동일"
+    )
     col_auto, col_xl = st.columns([1, 1])
     with col_auto:
-        if st.button("▶ 자동 계산 (Yahoo Finance)", key="kr_fg_auto_run", use_container_width=True, type="primary"):
+        if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
             with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
                 kr_fg_auto = get_kr_fg_auto()
             if "error" in kr_fg_auto:
@@ -1446,10 +1450,9 @@ with tab2:
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             st.plotly_chart(_fig, use_container_width=True)
     with col_xl:
-        st.caption("또는 Excel로 정밀 계산 (VKOSPI·P/C 실제 데이터 포함)")
+        st.caption("🎯 정밀 분석 — Excel 업로드 (VKOSPI·채권선물·P/C ATM 실제 데이터)")
 
-    st.caption("피어앤그리드.xlsx 업로드 시 VKOSPI·실제 PUT/CALL ATM 포함 정밀 버전으로 계산됩니다")
-    st.caption("피어앤그리드.xlsx 업로드 필요 (KOSPI / KOSDAQ 시트 포함)")
+    st.caption("📂 피어앤그리드.xlsx 업로드 필요 (KOSPI / KOSDAQ 시트 포함) — 원본 로직 그대로 적용")
     fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
     if fg_file:
         try:
@@ -1492,14 +1495,18 @@ with tab2:
     st.divider()
 
     # ── 수급 자동 스크리닝 ──
-    st.markdown("### 📡 외국인 수급 자동 스크리닝")
-    st.caption("네이버 파이낸스 실시간 스크래핑 | 외국인 20일 순매수 누적 기준 (무료 자동)")
+    st.markdown("### 📡 외국인 수급 자동 스크리닝 〔참고용〕")
+    st.warning(
+        "⚠️ **원본 로직과 다른 근사값입니다**\n\n"
+        "- 원본: 외국인·기관 20D/120D 순매수 모두 양수 → 교집합 / 유동시총 정규화\n"
+        "- 자동(참고용): **외국인 순매수만** (기관 데이터는 무료 소스 없음) | 수급 오실레이터로 방향성 참고"
+    )
     col_sa, col_sb = st.columns([1,2])
     with col_sa:
         supply_days = st.selectbox("집계 기간", [10,20,40], index=1, key="supply_days_sel")
     with col_sb:
-        st.caption(f"현재 설정: 최근 {supply_days}거래일 외국인 순매수 누적 (순매수량 × 종가)")
-    if st.button("▶ 수급 자동 스크리닝 실행", key="kr_supply_auto_run", use_container_width=True):
+        st.caption(f"최근 {supply_days}거래일 외국인 순매수량×종가 누적 | 네이버 파이낸스")
+    if st.button("▶ 수급 자동 스크리닝 〔참고용〕", key="kr_supply_auto_run", use_container_width=True):
         with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 수급 데이터 수집 중... (40~70초)"):
             sup = get_kr_supply_auto(top_n=20, days=supply_days)
         if "error" in sup:
@@ -1574,9 +1581,13 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 자동 ──
-    st.markdown("### 🤖 컨센서스 가속 자동 스크리닝")
-    st.caption("WiseReport/네이버 | EPS 성장률 + 매수비율 + 목표가 인상비율 기반 자동 분석")
-    if st.button("▶ 컨센서스 가속 자동 실행", key="kr_consensus_auto_run", use_container_width=True):
+    st.markdown("### 🤖 컨센서스 스크리닝 〔참고용〕")
+    st.warning(
+        "⚠️ **원본 로직과 다른 근사값입니다**\n\n"
+        "- 원본: EPS 컨센서스 **1개월 변화 > 3개월 변화** (진짜 가속도) → FnGuide/WiseFn 유료 데이터 필요\n"
+        "- 자동(참고용): WiseReport에서 **내년 추정EPS 성장률 + 매수비율 + TP인상비율** 합산 스코어 — 가속도 근사"
+    )
+    if st.button("▶ 컨센서스 스크리닝 〔참고용〕", key="kr_consensus_auto_run", use_container_width=True):
         with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 컨센서스 수집 중... (60~90초)"):
             cons_auto = get_kr_consensus_auto(top_n=20)
         if "error" in cons_auto:
@@ -1607,8 +1618,11 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
-    st.markdown("### 📋 컨센 가속 & 수급 반영 (Excel 정밀)")
-    st.caption("데이터 정리.xlsx 업로드 — EPS 컨센서스 가속 + 외국인/기관 수급 교집합 분석")
+    st.markdown("### 📋 컨센 가속 & 수급 반영 〔정밀 분석〕")
+    st.success(
+        "✅ **원본 로직 그대로 적용** — EPS 1M변화 > 3M변화 가속 조건 + 외국인/기관 20D·120D 수급 교집합"
+    )
+    st.caption("📂 데이터 정리.xlsx 업로드 필요 (db 시트 포함)")
     consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
     if consensus_file:
         try:
