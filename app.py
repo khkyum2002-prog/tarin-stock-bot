@@ -1832,27 +1832,35 @@ with tab3:
         if trend_supply_file:
             try:
                 trend_supply_file.seek(0)
-                df_tsd = pd.read_excel(trend_supply_file, sheet_name="DB(2)", engine="openpyxl")
-                st.markdown("### 🏦 추세판별기 외국인 수급 〔Excel 정밀〕")
+                _tsd_xl = pd.ExcelFile(trend_supply_file, engine="openpyxl")
+                _tsd_sn = next((s for s in _tsd_xl.sheet_names if 'DB' in s and '2' in s), _tsd_xl.sheet_names[0])
+                trend_supply_file.seek(0)
+                df_tsd = pd.read_excel(trend_supply_file, sheet_name=_tsd_sn, engine="openpyxl")
                 date_col_tsd = df_tsd.columns[0]
-                frgn_buy_col = next((c for c in df_tsd.columns if '순매수' in c and '외국' in c), None)
-                frgn_sell_col = next((c for c in df_tsd.columns if '매도' in c and '외국' in c), None)
-                close_col_tsd = next((c for c in df_tsd.columns if '종가' in c), None)
-                if frgn_buy_col and close_col_tsd:
+                # 외국인 or 기관 매수 컬럼 탐지
+                buy_col = next((c for c in df_tsd.columns if '매수' in str(c) and ('외국' in str(c) or '기관' in str(c))), None)
+                sell_col = next((c for c in df_tsd.columns if '매도' in str(c) and ('외국' in str(c) or '기관' in str(c))), None)
+                close_col_tsd = next((c for c in df_tsd.columns if '종가' in str(c)), None)
+                buy_label = buy_col if buy_col else "매수수량"
+                sell_label = sell_col if sell_col else "매도수량"
+                st.markdown("### 🏦 추세판별기 수급 〔Excel 정밀〕")
+                if buy_col and close_col_tsd:
                     df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
                     df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
-                    df_tsd[frgn_buy_col] = pd.to_numeric(df_tsd[frgn_buy_col], errors='coerce').fillna(0)
+                    # 유효 데이터만 (종가 != 0)
+                    df_tsd = df_tsd[pd.to_numeric(df_tsd[close_col_tsd], errors='coerce').fillna(0) != 0]
+                    df_tsd[buy_col] = pd.to_numeric(df_tsd[buy_col], errors='coerce').fillna(0)
                     df_tsd[close_col_tsd] = pd.to_numeric(df_tsd[close_col_tsd], errors='coerce')
                     dates_tsd = [str(d.date()) for d in df_tsd[date_col_tsd]]
-                    buy_vals_tsd = df_tsd[frgn_buy_col].tolist()
+                    buy_vals_tsd = df_tsd[buy_col].tolist()
                     bar_colors_tsd = ["#00c853" if v >= 0 else "#ff4b4b" for v in buy_vals_tsd]
                     fig_tsd = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig_tsd.add_trace(go.Bar(x=dates_tsd, y=buy_vals_tsd, name="5일 외국 순매수수량",
+                    fig_tsd.add_trace(go.Bar(x=dates_tsd, y=buy_vals_tsd, name=buy_label,
                                              marker_color=bar_colors_tsd, opacity=0.8), secondary_y=False)
-                    if frgn_sell_col:
-                        df_tsd[frgn_sell_col] = pd.to_numeric(df_tsd[frgn_sell_col], errors='coerce').fillna(0)
-                        fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[frgn_sell_col].tolist(),
-                                                     name="5일 외국 매도수량",
+                    if sell_col:
+                        df_tsd[sell_col] = pd.to_numeric(df_tsd[sell_col], errors='coerce').fillna(0)
+                        fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[sell_col].tolist(),
+                                                     name=sell_label,
                                                      line=dict(color="#FF8C00", width=1.5, dash="dot")), secondary_y=False)
                     fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[close_col_tsd].tolist(), name="종가",
                                                   line=dict(color="#E0E0E0", width=2)), secondary_y=True)
@@ -1866,9 +1874,9 @@ with tab3:
                     fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
                     fig_tsd.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     st.plotly_chart(fig_tsd, use_container_width=True)
-                    st.caption(f"DB(2) 시트 | 컬럼: {frgn_buy_col}")
+                    st.caption(f"시트: {_tsd_sn} | 매수: {buy_col} | 매도: {sell_col}")
                 else:
-                    st.warning(f"5일 외국 순매수수량 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)[:8]}")
+                    st.warning(f"매수 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)}")
             except Exception as e:
                 st.error(f"추세판별기 파일 읽기 오류: {e}")
 
