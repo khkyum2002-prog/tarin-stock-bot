@@ -836,7 +836,7 @@ def calc_kr_etf_rs_excel(df_data, top_n=15):
         for col in etf_cols:
             s = pd.to_numeric(df[col], errors='coerce').where(lambda x: x > 0, np.nan)
             common = s.dropna().index.intersection(kospi.dropna().index)
-            if len(common) < 63:
+            if len(common) < 60:
                 continue
             sc = s.loc[common]; kc = kospi.loc[common]
             rel = sc / kc
@@ -1037,7 +1037,7 @@ def calc_kr_fg_excel(df_kospi, df_kosdaq, df_call_oi=None, df_put_oi=None):
             return df.dropna(subset=['Date']).copy()
         def calc_rsi_local(df,col,win=10):
             d=df[col].diff(); g=d.where(d>0,0).rolling(win).mean(); l=(-d.where(d<0,0)).rolling(win).mean()
-            df['RSI_10']=100-(100/(1+g/l.replace(0,np.nan))); return df
+            rs=g/l; df['RSI_10']=100-(100/(1+rs)); return df
         def calc_fg_local(df,pc,vc,cc,ptc,b5,b10,frgn_pc_col=None):
             df=df.copy(); df['MA125']=df[pc].rolling(125).mean()
             df['Momentum']=(df[pc]-df['MA125'])/df['MA125']*100
