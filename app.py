@@ -759,6 +759,64 @@ def calc_kr_stock_rs_excel(df_close, top_n=15):
     except Exception as e:
         return {"error": str(e)}
 
+def calc_weekly_trend_excel(df_wk):
+    """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
+    try:
+        date_col  = df_wk.columns[0]
+        df = df_wk.copy()
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
+        open_col  = next((c for c in df.columns if '시가' in str(c)), None)
+        high_col  = next((c for c in df.columns if '고가' in str(c)), None)
+        low_col   = next((c for c in df.columns if '저가' in str(c)), None)
+        close_col = next((c for c in df.columns if '종가' in str(c)), None)
+        vol_col   = next((c for c in df.columns if '거래량' in str(c)), None)
+        if not all([open_col, high_col, low_col, close_col, vol_col]):
+            return {"error": "OHLCV 컬럼 미감지"}
+        for c in [open_col, high_col, low_col, close_col, vol_col]:
+            df[c] = pd.to_numeric(df[c], errors='coerce')
+        df = df.dropna(subset=[close_col, vol_col])
+        if len(df) < 15:
+            return {"error": "주봉 데이터 부족 (15주 미만)"}
+        wk = df.rename(columns={open_col:'Open', high_col:'High', low_col:'Low', close_col:'Close', vol_col:'Volume'})
+        wk['Prev_High'] = wk['High'].shift(1)
+        wk['Prev_Low']  = wk['Low'].shift(1)
+        wk['MA10']      = wk['Close'].rolling(10).mean()
+        pr  = wk['High'] - wk['Low']
+        mfm = ((wk['Close'] - wk['Low']) - (wk['High'] - wk['Close'])) / pr.replace(0, np.nan)
+        wk['CMF'] = (mfm * wk['Volume']).rolling(4).sum() / wk['Volume'].rolling(4).sum()
+        buy  = (wk['High'] > wk['Prev_High']) & (wk['Close'] > wk['MA10']) & (wk['CMF'] > 0)
+        sell = (wk['Low']  < wk['Prev_Low'])  & (wk['Close'] < wk['MA10']) & (wk['CMF'] < 0)
+        ema13 = wk['Close'].ewm(span=13, adjust=False).mean()
+        macdh = _macd_hist(wk['Close'])
+        if len(ema13.dropna()) >= 2:
+            eu = ema13.iloc[-1] > ema13.iloc[-2]
+            mu = macdh.iloc[-1] > macdh.iloc[-2]
+            impulse_w = "🟢 강세" if eu and mu else ("🔴 약세" if not eu and not mu else "🔵 중립")
+        else:
+            impulse_w = "알수없음"
+        def td_cnt(s):
+            p = s.values; sc = np.zeros(len(p)); bc = np.zeros(len(p))
+            for i in range(len(p)):
+                sc[i] = sc[i-1]+1 if i >= 4 and p[i] > p[i-4] else 0
+                bc[i] = bc[i-1]+1 if i >= 2 and p[i] < p[i-2] else 0
+            return int(sc[-1]), int(bc[-1])
+        w_ts, w_tb = td_cnt(wk['Close'].dropna())
+        cur_cmf   = float(wk['CMF'].dropna().iloc[-1])
+        cur_close = float(wk['Close'].iloc[-1])
+        cur_ma10  = float(wk['MA10'].dropna().iloc[-1]) if not wk['MA10'].dropna().empty else None
+        ch = wk.tail(26)
+        dates = [str(d.date()) for d in df[date_col].tail(26)]
+        chart = {"dates": dates, "close": ch['Close'].tolist(), "ma10": ch['MA10'].tolist(),
+                 "cmf": ch['CMF'].tolist(), "high": ch['High'].tolist(), "low": ch['Low'].tolist()}
+        return {"price": round(cur_close, 2), "ma10": round(cur_ma10, 2) if cur_ma10 else None,
+                "cmf": round(cur_cmf, 4), "buy_signal": bool(buy.iloc[-1]), "sell_signal": bool(sell.iloc[-1]),
+                "recent_buy_4w": int(buy.tail(4).sum()), "impulse_weekly": impulse_w,
+                "w_td_sell": w_ts, "w_td_buy": w_tb,
+                "date_range": f"{dates[0]} ~ {dates[-1]}", "rows": len(df), "chart": chart}
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_weekly_trend(ticker):
     try:
         t = ticker.strip().upper()
@@ -1794,16 +1852,21 @@ with tab3:
 
     st.divider()
     st.caption("📂 추가 Excel 업로드 (선택) — 업로드 시 자동 계산과 함께 정밀 비교 표시")
-    _col_xu1, _col_xu2 = st.columns(2)
+    _col_xu1, _col_xu2, _col_xu3 = st.columns(3)
     with _col_xu1:
         trend_supply_file = st.file_uploader(
             "추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
-            help="DB(2) 시트 — 5일간 외국 순매수수량 오실레이터 추가"
+            help="DB(2) 시트 — 5일간 기관 매수수량 오실레이터 추가"
         )
     with _col_xu2:
         trading_xl_file = st.file_uploader(
             "국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
             help="_RotationRate_ 컬럼 — 거래대금 강도 비교 표시"
+        )
+    with _col_xu3:
+        weekly_xl_file = st.file_uploader(
+            "추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
+            help="DB 시트 — 주간 OHLCV로 CMF/임펄스/TD 계산 (HTS 원천 데이터)"
         )
 
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
@@ -1874,6 +1937,53 @@ with tab3:
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         st.plotly_chart(_fig,use_container_width=True)
                 st.divider()
+
+        # ── 추세판별기 주간 Excel (선택) ──
+        if weekly_xl_file:
+            try:
+                weekly_xl_file.seek(0)
+                _wk_xl = pd.ExcelFile(weekly_xl_file, engine="openpyxl")
+                _wk_sn = next((s for s in _wk_xl.sheet_names if 'DB' in s and '2' not in s), _wk_xl.sheet_names[0])
+                weekly_xl_file.seek(0)
+                df_wkxl = pd.read_excel(weekly_xl_file, sheet_name=_wk_sn, engine="openpyxl")
+                wkr = calc_weekly_trend_excel(df_wkxl)
+                if "error" in wkr:
+                    st.error(f"추세판별기(주간) Excel 오류: {wkr['error']}")
+                else:
+                    st.divider()
+                    st.markdown("### 📅 주간 추세판별기 〔Excel HTS 원천〕")
+                    st.caption(f"시트: {_wk_sn} | {wkr['rows']}주 | {wkr['date_range']}")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("CMF (4주)", f"{wkr['cmf']:.4f}", "🟢 자금유입" if wkr['cmf'] > 0 else "🔴 자금유출")
+                    c2.metric("주간 임펄스", wkr["impulse_weekly"])
+                    sig = "🟢 매수신호" if wkr["buy_signal"] else ("🔴 매도신호" if wkr["sell_signal"] else "⏳ 대기")
+                    c3.metric("CMF 신호", sig, f"최근4주 매수: {wkr['recent_buy_4w']}회")
+                    c1.metric("주봉 TD 매도/매수", f"{wkr['w_td_sell']} / {wkr['w_td_buy']}")
+                    if wkr.get("ma10"):
+                        st.caption(f"현재가: {wkr['price']:,} | 주봉 MA10: {wkr['ma10']:,}")
+                    if wkr.get("chart"):
+                        with st.expander("📊 주봉 차트 (Excel HTS 원천)"):
+                            _ch = wkr["chart"]
+                            _fig2 = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                                  row_heights=[0.65, 0.35], vertical_spacing=0.05,
+                                                  subplot_titles=("주가", "CMF"))
+                            _fig2.add_trace(go.Scatter(x=_ch["dates"], y=_ch["close"], name="종가",
+                                                       line=dict(color="#E0E0E0", width=2)), row=1, col=1)
+                            _fig2.add_trace(go.Scatter(x=_ch["dates"], y=_ch["ma10"], name="MA10",
+                                                       line=dict(color="#FF8C00", width=1.5, dash="dot")), row=1, col=1)
+                            _cmf_colors2 = ["#00c853" if v and v > 0 else "#ff4b4b" for v in _ch["cmf"]]
+                            _fig2.add_trace(go.Bar(x=_ch["dates"], y=_ch["cmf"], name="CMF",
+                                                   marker_color=_cmf_colors2), row=2, col=1)
+                            _fig2.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
+                            _fig2.update_layout(height=400, margin=dict(l=10, r=20, t=40, b=10),
+                                                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                                                font_color='#e0e0e0', showlegend=True,
+                                                legend=dict(orientation='h', y=1.08))
+                            _fig2.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                            _fig2.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                            st.plotly_chart(_fig2, use_container_width=True)
+            except Exception as e:
+                st.error(f"추세판별기(주간) 파일 읽기 오류: {e}")
 
         st.divider()
         # ── 추세판별기 수급 Excel (선택) ──
