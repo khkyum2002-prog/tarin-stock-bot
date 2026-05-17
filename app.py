@@ -14,17 +14,53 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="퇴근길 주식", page_icon="📈", layout="centered")
 st.markdown("""<style>
+/* ── 메트릭 카드 ── */
 div[data-testid="metric-container"] {
     background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.08);
     border-radius: 10px;
     padding: 10px 14px;
     margin: 3px 0;
 }
-[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-[data-testid="stMetricLabel"] { font-size: 0.82rem !important; }
+[data-testid="stMetricValue"] { font-size: 1.05rem !important; }
+[data-testid="stMetricLabel"] { font-size: 0.78rem !important; color: rgba(255,255,255,0.6) !important; }
+/* ── 탭 ── */
 .stTabs [data-baseweb="tab"] { font-weight: 700; font-size: 0.95rem; }
-hr { margin: 0.6rem 0; }
+hr { margin: 0.5rem 0; }
+/* ── 신호 카드 ── */
+.sig-green {
+    background: rgba(0,200,83,0.12);
+    border-left: 3px solid #00c853;
+    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
+    font-size: 0.88rem;
+}
+.sig-red {
+    background: rgba(255,75,75,0.12);
+    border-left: 3px solid #ff4b4b;
+    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
+    font-size: 0.88rem;
+}
+.sig-yellow {
+    background: rgba(255,193,7,0.12);
+    border-left: 3px solid #ffc107;
+    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
+    font-size: 0.88rem;
+}
+/* ── 섹션 헤더 ── */
+.zone-header {
+    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.4); text-transform: uppercase;
+    margin: 1.2rem 0 0.4rem;
+}
+/* ── 업로더 영역 ── */
+div[data-testid="stFileUploader"] label {
+    font-size: 0.82rem !important;
+}
+/* ── 버튼 ── */
+div[data-testid="stButton"] button[kind="primary"] {
+    background: linear-gradient(135deg,#1a73e8,#0d47a1);
+    border: none; border-radius: 8px;
+}
 </style>""", unsafe_allow_html=True)
 
 _days = ["월","화","수","목","금","토","일"]
@@ -1372,135 +1408,143 @@ def calc_consensus_excel(df_db):
         return {"eps_passed":len(base),"foreign_top20":f_top20,"inst_top20":i_top20,"common":common}
     except Exception as e: return {"error":str(e)}
 
+# ── 공통 차트 헬퍼 ──
+def _chart_layout(fig, height=360):
+    fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10),
+                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                      font_color='#e0e0e0', legend=dict(orientation='h',y=1.08))
+    fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
+    fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
+    return fig
+
+def _rs_bar_chart(items, name_key="name", val_key="norm_rs", height=320):
+    s = sorted(items, key=lambda x: x[val_key])
+    names = [r[name_key] for r in s]; vals = [r[val_key] for r in s]
+    colors = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in vals]
+    fig = go.Figure(go.Bar(x=vals, y=names, orientation='h', marker_color=colors,
+                           text=[f"{v:.1f}" for v in vals], textposition='outside'))
+    fig.update_layout(xaxis_range=[0,112], height=max(height, len(names)*26),
+                      margin=dict(l=10,r=50,t=10,b=10),
+                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+    fig.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
+    fig.add_vline(x=50, line_dash="dash", line_color="#ffc107", opacity=0.4)
+    return fig
+
+def _osc_bar_chart(dates, osc_vals, height=220):
+    colors = ["#00c853" if v>0 else "#ff4b4b" for v in osc_vals]
+    fig = go.Figure(go.Bar(x=dates, y=osc_vals, marker_color=colors))
+    fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+    return _chart_layout(fig, height)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 1: 미국 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
-    st.subheader("🌎 미국 시장 종합 지표")
     st.caption("미국 장 마감 후 (한국 오전 6~7시) 실행 권장")
 
     if st.button("▶ 미국 지표 전체 실행", type="primary", use_container_width=True, key="us_run"):
-        prog = st.progress(0, text="🐤 카나리아 분석 중...")
-        canary=get_canary_signal(); prog.progress(10, text="🔥 BOFA Heat 분석 중...")
-        bofa=get_bofa_heat(); prog.progress(20, text="🩸 블러드 인디케이터...")
-        blood=get_blood_indicator(); prog.progress(30, text="😱 피어앤그리드 (일간)...")
-        fg=get_us_fear_greed(); prog.progress(42, text="📅 피어앤그리드 (월간)...")
-        fg_m=get_monthly_fear_greed(); prog.progress(52, text="📊 코포크 지표...")
-        coppock=get_coppock(); coppock_fast=get_coppock_fast(); prog.progress(62, text="📡 ZBT 시장 폭...")
-        zbt=get_zbt(); prog.progress(72, text="🏆 S&P500 RS 상위...")
-        sp500_rs=get_sp500_rs(SP500_TOP100); prog.progress(84, text="🏆 나스닥100 RS...")
-        ndx_rs=get_nasdaq100_rs(NASDAQ100); prog.progress(93, text="🏭 미국 섹터 ETF RS...")
-        us_sector=get_us_sector_rs(); prog.progress(100, text="✅ 완료!")
-        prog.empty(); st.success("✅ 분석 완료!")
+        prog = st.progress(0, text="카나리아 분석 중...")
+        canary=get_canary_signal(); prog.progress(10, text="BOFA Heat 분석 중...")
+        bofa=get_bofa_heat(); prog.progress(20, text="블러드 인디케이터...")
+        blood=get_blood_indicator(); prog.progress(30, text="피어앤그리드 (일간)...")
+        fg=get_us_fear_greed(); prog.progress(42, text="피어앤그리드 (월간)...")
+        fg_m=get_monthly_fear_greed(); prog.progress(52, text="코포크 지표...")
+        coppock=get_coppock(); coppock_fast=get_coppock_fast(); prog.progress(62, text="ZBT 시장 폭...")
+        zbt=get_zbt(); prog.progress(72, text="S&P500 RS 상위...")
+        sp500_rs=get_sp500_rs(SP500_TOP100); prog.progress(84, text="나스닥100 RS...")
+        ndx_rs=get_nasdaq100_rs(NASDAQ100); prog.progress(93, text="미국 섹터 ETF RS...")
+        us_sector=get_us_sector_rs(); prog.progress(100, text="완료!")
+        prog.empty()
 
-        # ── 종합 신호 카드 ──
-        st.markdown("### 🚦 종합 신호")
+        # ── 1. 종합 신호 ──
+        st.markdown('<p class="zone-header">종합 신호</p>', unsafe_allow_html=True)
         c1,c2,c3,c4 = st.columns(4)
         if canary and "error" not in canary:
-            e="🟢" if canary["mode"]=="공격" else "🔴"
-            c1.metric("🐤 카나리아 모드",f"{e} {canary['mode']}",f"QQQ {canary['qqq_mom']*100:+.1f}%")
+            color = "sig-green" if canary["mode"]=="공격" else "sig-red"
+            c1.markdown(f'<div class="{color}">🐤 카나리아<br><b>{canary["mode"]}</b><br><span style="font-size:0.78rem">QQQ {canary["qqq_mom"]*100:+.1f}%</span></div>', unsafe_allow_html=True)
         if bofa and "error" not in bofa:
-            c2.metric("🔥 BOFA Heat",f"{bofa['heat']}/10",_heat_label(bofa['heat']))
+            heat_color = "sig-red" if bofa["heat"]>=7.5 else ("sig-yellow" if bofa["heat"]>=5 else "sig-green")
+            c2.markdown(f'<div class="{heat_color}">🔥 BOFA Heat<br><b>{bofa["heat"]}/10</b><br><span style="font-size:0.78rem">{_heat_label(bofa["heat"])} · 추세{"✅" if bofa["trend_on"] else "❌"}</span></div>', unsafe_allow_html=True)
         if blood and "error" not in blood:
-            c3.metric("🩸 블러드",blood["value"],f"60MA {blood['vs_ma60']}")
+            c3.markdown(f'<div class="sig-yellow">🩸 블러드<br><b>{blood["value"]:.4f}</b><br><span style="font-size:0.78rem">60MA {blood["vs_ma60"]}</span></div>', unsafe_allow_html=True)
         if zbt and "error" not in zbt:
-            c4.metric("📡 ZBT",f"{zbt['zbt']:.3f}","🟢 반등신호" if zbt.get("signal") else "⏳ 대기중")
+            zbt_color = "sig-green" if zbt.get("signal") else "sig-yellow"
+            c4.markdown(f'<div class="{zbt_color}">📡 ZBT<br><b>{zbt["zbt"]:.3f}</b><br><span style="font-size:0.78rem">{"🟢 반등신호!" if zbt.get("signal") else "⏳ 대기중"}</span></div>', unsafe_allow_html=True)
 
         st.divider()
 
-        # ── BOFA 세부 ──
-        if bofa and "error" not in bofa:
-            with st.expander("🔥 BOFA Heat 세부 보기", expanded=False):
-                c1,c2,c3,c4 = st.columns(4)
-                c1.metric("Heat Score",f"{bofa['heat']}/10",_heat_label(bofa['heat']))
-                c2.metric("상승추세","✅ Yes" if bofa['trend_on'] else "❌ No")
-                c3.metric("VIX 쇼크","⚠️ ON" if bofa['shock_vix'] else "✅ 정상")
-                c4.metric("크레딧 쇼크","⚠️ ON" if bofa['shock_credit'] else "✅ 정상")
-                st.caption("Heat ≥7.5: 과열 🔴 / ≥5: 주의 🟠 / ≥2.5: 보통 🟡 / <2.5: 안전 🟢")
-
-        # ── ZBT 세부 ──
-        if zbt and "error" not in zbt:
-            with st.expander("📡 ZBT (Zweig Breadth Thrust) 세부 보기", expanded=False):
-                c1,c2,c3 = st.columns(3)
-                c1.metric("ZBT 현재",f"{zbt['zbt']:.3f}","🟢 신호발생!" if zbt["signal"] else "❌ 미발생")
-                c2.metric("최근 최저",f"{zbt['prev_min']:.3f}","<40% 필요")
-                c3.metric("VIX",str(zbt.get('vix','N/A')),"✅ 안정" if zbt.get('vix_ok') else "⚠️ 높음")
-                st.caption("ZBT: 최근10일최저<40% → 현재>61.5% 돌파 시 저점 반등 신호 (나스닥100+S&P500 종목 기준)")
-
-        st.divider()
-
-        # ── 피어앤그리드 ──
-        st.markdown("### 😱 피어앤그리드 오실레이터")
-        c_d, c_m = st.columns(2)
-        with c_d:
-            st.markdown("**📅 일간 (단기 추세)**")
-            if fg and "error" not in fg:
-                c1,c2=st.columns(2)
-                c1.metric("S&P500 Osc",fg["spx_osc"],f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}")
-                c2.metric("NASDAQ Osc",fg["ndx_osc"],f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}")
-                c1.metric("SPY 임펄스",fg["spy_impulse"]); c2.metric("QQQ 임펄스",fg["qqq_impulse"])
-                c1.metric("SPY SuperMA 이격",f"{fg['spy_gap']:+.2f}%"); c2.metric("QQQ SuperMA 이격",f"{fg['qqq_gap']:+.2f}%")
-                c1.metric("SPY TD 매도/매수",f"{fg['spy_td_sell']} / {fg['spy_td_buy']}")
-                c2.metric("QQQ TD 매도/매수",f"{fg['qqq_td_sell']} / {fg['qqq_td_buy']}")
-                if fg.get("chart"):
-                    with st.expander("📈 오실레이터 차트 (최근 6개월)"):
-                        ch=fg["chart"]
-                        _fig=go.Figure()
-                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spx_osc"],name="S&P500 Osc",line=dict(color="#6A5ACD",width=2)))
-                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ndx_osc"],name="NASDAQ Osc",line=dict(color="#00B3B3",width=2)))
-                        _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spy"],name="SPY",yaxis="y2",line=dict(color="#888888",width=1.5,dash="dot")))
-                        _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)")
-                        _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False),
-                                            height=340,margin=dict(l=10,r=60,t=20,b=10),
-                                            plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
-                                            font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
-                        _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
-            else: st.error("일간 F&G 오류")
-        with c_m:
-            st.markdown("**📆 월간 (중장기 추세)**")
+        # ── 2. 피어앤그리드 오실레이터 ──
+        st.markdown('<p class="zone-header">😱 피어앤그리드 오실레이터</p>', unsafe_allow_html=True)
+        _fg_cols = st.columns([1,1,1,1,1,1])
+        if fg and "error" not in fg:
+            _fg_cols[0].metric("SPX Osc", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}")
+            _fg_cols[1].metric("NDX Osc", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}")
+            _fg_cols[2].metric("SPY 임펄스", fg["spy_impulse"])
+            _fg_cols[3].metric("QQQ 임펄스", fg["qqq_impulse"])
+            _fg_cols[4].metric("SPY SuperMA", f"{fg['spy_gap']:+.2f}%")
+            _fg_cols[5].metric("QQQ SuperMA", f"{fg['qqq_gap']:+.2f}%")
+            c1,c2 = st.columns(2)
+            c1.metric("SPY TD 매도/매수", f"{fg['spy_td_sell']} / {fg['spy_td_buy']}")
+            c2.metric("QQQ TD 매도/매수", f"{fg['qqq_td_sell']} / {fg['qqq_td_buy']}")
             if fg_m and "error" not in fg_m:
-                c1,c2=st.columns(2)
-                c1.metric("S&P500 월간",fg_m["spx_osc"],f"{'🟢' if fg_m['spx_osc']>0 else '🔴'} {fg_m['spx_sentiment']}")
-                c2.metric("NASDAQ 월간",fg_m["ndx_osc"],f"{'🟢' if fg_m['ndx_osc']>0 else '🔴'} {fg_m['ndx_sentiment']}")
-                c1.metric("기준월",fg_m["date"]); c2.metric("S&P500 FGI",fg_m["spx_fgi"])
-            else: st.error("월간 F&G 오류")
+                c1.metric("S&P500 월간Osc", fg_m["spx_osc"], f"{'🟢' if fg_m['spx_osc']>0 else '🔴'} {fg_m['spx_sentiment']}")
+                c2.metric("NASDAQ 월간Osc", fg_m["ndx_osc"], f"{'🟢' if fg_m['ndx_osc']>0 else '🔴'} {fg_m['ndx_sentiment']}")
+            if fg.get("chart"):
+                with st.expander("📈 오실레이터 차트 (최근 6개월)"):
+                    ch=fg["chart"]
+                    _fig=go.Figure()
+                    _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spx_osc"],name="S&P500",line=dict(color="#6A5ACD",width=2)))
+                    _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ndx_osc"],name="NASDAQ",line=dict(color="#00B3B3",width=2)))
+                    _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spy"],name="SPY가격",yaxis="y2",line=dict(color="#666",width=1.5,dash="dot")))
+                    _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)")
+                    _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False),
+                                        height=320,margin=dict(l=10,r=60,t=20,b=10),
+                                        plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
+                                        font_color='#e0e0e0',legend=dict(orientation='h',y=1.08))
+                    _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
+                    _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
+                    st.plotly_chart(_fig,use_container_width=True)
 
         st.divider()
 
-        # ── 코포크 ──
-        st.markdown("### 📊 코포크 지표")
-        c_std, c_fast = st.columns(2)
-        with c_std:
-            st.markdown("**표준 (11/14개월 ROC, 10개월 EMA)**")
+        # ── 3. 코포크 + ZBT ──
+        st.markdown('<p class="zone-header">📊 코포크 · ZBT</p>', unsafe_allow_html=True)
+        _cp1, _cp2, _cp3 = st.columns([2,2,1])
+        with _cp1:
+            st.caption("표준 (ROC 11/14개월, EMA 10)")
             if coppock and "error" not in coppock:
                 cols=st.columns(len(coppock))
                 for i,(lbl,v) in enumerate(coppock.items()):
-                    e="🟢" if v["pos"] else "🔴"; arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl,f"{e} {v['value']}",f"{arr} {v['trend']}")
-        with c_fast:
-            st.markdown("**빠른 버전 (4/6개월 ROC, 3개월 MA)**")
+                    arr="▲" if v["trend"]=="상승" else "▼"
+                    cols[i].metric(lbl,f"{'🟢' if v['pos'] else '🔴'} {v['value']}",f"{arr} {v['trend']}")
+        with _cp2:
+            st.caption("빠른버전 (ROC 4/6개월, MA 3)")
             if coppock_fast and "error" not in coppock_fast:
                 cols=st.columns(len(coppock_fast))
                 for i,(lbl,v) in enumerate(coppock_fast.items()):
-                    e="🟢" if v["pos"] else "🔴"; arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl,f"{e} {v['value']}",f"{arr} {v['trend']}")
+                    arr="▲" if v["trend"]=="상승" else "▼"
+                    cols[i].metric(lbl,f"{'🟢' if v['pos'] else '🔴'} {v['value']}",f"{arr} {v['trend']}")
+        with _cp3:
+            st.caption("ZBT 시장폭")
+            if zbt and "error" not in zbt:
+                st.metric("ZBT", f"{zbt['zbt']:.3f}", "🟢 신호!" if zbt.get("signal") else "⏳")
+                st.metric("최근최저", f"{zbt['prev_min']:.3f}")
+                if zbt.get("vix"): st.metric("VIX", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️")
 
         st.divider()
 
-        # ── RS 상위 종목 ──
-        st.markdown("### 🏆 상대강도(RS) 상위 종목")
-        c1,c2=st.columns(2)
+        # ── 4. RS 상위 종목 ──
+        st.markdown('<p class="zone-header">🏆 상대강도 상위</p>', unsafe_allow_html=True)
+        c1,c2 = st.columns(2)
         with c1:
-            st.markdown("**📈 S&P500 Top 10**")
+            st.caption("S&P500 Top 10")
             if sp500_rs and "error" not in sp500_rs:
                 for i,item in enumerate(sp500_rs["top"],1):
                     t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs",0)
                     st.markdown(f"`{i:2d}` **{t}** {kr} &nbsp; {_cv(rs,'1f')}", unsafe_allow_html=True)
             elif sp500_rs: st.error(sp500_rs.get("error"))
         with c2:
-            st.markdown("**📈 나스닥100 Top 10**")
+            st.caption("나스닥100 Top 10")
             if ndx_rs and "error" not in ndx_rs:
                 for i,item in enumerate(ndx_rs["top"],1):
                     t=item["ticker"]; kr=TICKER_NAMES.get(t,""); rs=item.get("rs",0)
@@ -1509,37 +1553,24 @@ with tab1:
 
         st.divider()
 
-        # ── 섹터 ETF RS ──
-        st.markdown("### 🏭 미국 섹터 ETF 상대강도")
+        # ── 5. 섹터 ETF RS ──
+        st.markdown('<p class="zone-header">🏭 미국 섹터 ETF 상대강도</p>', unsafe_allow_html=True)
         if us_sector and "error" not in us_sector:
             df_s=pd.DataFrame(us_sector["sectors"])
             df_s["강도"]=df_s["norm_rs"].apply(lambda x:"🟢 강세" if x>=70 else ("🟡 중립" if x>=50 else "🔴 약세"))
-            df_s.columns=[c if c!="ticker" else "티커" for c in df_s.columns]
-            st.dataframe(df_s.rename(columns={"ticker":"티커","name":"섹터","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"}),
+            st.dataframe(df_s.rename(columns={"ticker":"티커","name":"섹터","norm_rs":"RS","rs_raw":"RS원시","risk_adj":"변동성모멘텀","강도":"강도"})[["티커","섹터","RS","변동성모멘텀","강도"]],
                 use_container_width=True, hide_index=True,
-                column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
-            with st.expander("📊 섹터 RS 차트 보기"):
-                _sorted=sorted(us_sector["sectors"],key=lambda x:x["norm_rs"])
-                _names=[f"{r['name']}({r['ticker']})" for r in _sorted]
-                _vals=[r["norm_rs"] for r in _sorted]
-                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
-                _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
-                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
-                _fig.update_layout(xaxis_range=[0,110],height=max(320,len(_names)*26),
-                                    margin=dict(l=10,r=50,t=10,b=10),
-                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
-                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
-                _fig.add_vline(x=50,line_dash="dash",line_color="#ffc107",opacity=0.5)
-                st.plotly_chart(_fig,use_container_width=True)
+                column_config={"RS":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
+            with st.expander("📊 섹터 RS 차트"):
+                st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True)
         elif us_sector: st.error(us_sector.get("error"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 2: 국내 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
-    st.subheader("🇰🇷 국내 시장 지표")
     st.caption("장 마감 후 (오후 4시 이후) 실행 권장")
-
+    st.markdown('<p class="zone-header">자동 시장 스캔</p>', unsafe_allow_html=True)
     if st.button("▶ 국내 지표 전체 실행", type="primary", use_container_width=True, key="kr_run"):
         prog=st.progress(0, text="📊 코스피/코스닥 수집 중...")
         market=get_market_summary(); prog.progress(20, text="🏭 업종 ETF 수집 중...")
@@ -1547,10 +1578,10 @@ with tab2:
         supply=get_supply_oscillator(); prog.progress(60, text="🇰🇷 한국 ETF RS 계산 중...")
         kr_etf=get_kr_etf_rs(); prog.progress(80, text="🏠 빈집 스크리닝 중...")
         binzip=get_binzip_stocks(supply_data=supply); prog.progress(100, text="✅ 완료!")
-        prog.empty(); st.success("✅ 분석 완료!")
+        prog.empty()
 
         # ── 지수 현황 ──
-        st.markdown("### 📊 지수 현황")
+        st.markdown('<p class="zone-header">📊 지수 현황</p>', unsafe_allow_html=True)
         if market and "error" not in market:
             kp=market["kospi"]; kq=market["kosdaq"]
             c1,c2=st.columns(2)
@@ -1565,7 +1596,7 @@ with tab2:
         st.divider()
 
         # ── 업종 강세/약세 ──
-        st.markdown("### 🏭 업종 강세 / 약세")
+        st.markdown('<p class="zone-header">🏭 업종 강세 / 약세</p>', unsafe_allow_html=True)
         if sector and "error" not in sector:
             c1,c2=st.columns(2)
             with c1:
@@ -1581,7 +1612,7 @@ with tab2:
         st.divider()
 
         # ── 수급 오실레이터 ──
-        st.markdown("### 💹 수급 오실레이터")
+        st.markdown('<p class="zone-header">💹 수급 오실레이터</p>', unsafe_allow_html=True)
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
             st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
@@ -1597,7 +1628,7 @@ with tab2:
         st.divider()
 
         # ── 한국 ETF RS ──
-        st.markdown("### 🇰🇷 한국 산업/테마 ETF 상대강도 (vs KOSPI)")
+        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 상대강도</p>', unsafe_allow_html=True)
         if kr_etf and "error" not in kr_etf:
             show=kr_etf.get("strong") or kr_etf.get("all",[])[:10]
             if show:
@@ -1624,7 +1655,7 @@ with tab2:
 
         # ── 빈집 주도주 ──
         bz=binzip or {}; bl=bz.get("binzip",[]); ss=" + ".join(bz.get("sectors",[])) or "주도업종"
-        st.markdown(f"### 🏠 수급 빈집 주도주 [{ss}]")
+        st.markdown(f'<p class="zone-header">🏠 빈집 주도주 [{ss}]</p>', unsafe_allow_html=True)
         if bl:
             df_bz=pd.DataFrame(bl)[["name","code","price","rs60","rel20"]]
             df_bz.columns=["종목명","코드","현재가","60일RS(%)","20일눌림(%)"]
@@ -1639,7 +1670,7 @@ with tab2:
     st.divider()
 
     # ── 한국 개별종목 RS ──
-    st.markdown("### 📈 한국 개별종목 상대강도 (RS)")
+    st.markdown('<p class="zone-header">📈 개별종목 RS</p>', unsafe_allow_html=True)
     rs_xl_file = st.file_uploader(
         "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
         help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
@@ -1681,7 +1712,7 @@ with tab2:
     st.divider()
 
     # ── 한국 ETF RS (Excel 정밀) ──
-    st.markdown("### 📊 한국 ETF 상대강도 〔Excel 정밀〕")
+    st.markdown('<p class="zone-header">📊 한국 ETF RS 〔Excel〕</p>', unsafe_allow_html=True)
     etf_rs_xl_file = st.file_uploader(
         "etf상대강도데이터.xlsx 업로드 (데이터 시트 포함)", type=["xlsx"], key="etf_rs_xl_file",
         help="데이터 시트: DATE + 코스피 + ETF 종가 컬럼 — linear Mansfield RS 60/120/250d"
@@ -1727,14 +1758,9 @@ with tab2:
     st.divider()
 
     # ── 한국 F&G 오실레이터 ──
-    st.markdown("### 😨 한국 피어앤그리드 오실레이터")
-    st.info(
-        "**자동(참고용)**: VKOSPI·채권선물·P/C ATM을 무료 대체지표로 근사 계산 — 방향성 참고 전용\n\n"
-        "**Excel(정밀)**: 실제 VKOSPI·국채선물·Put/Call ATM 데이터 사용 — 원본 로직 동일"
-    )
-    col_auto, col_xl = st.columns([1, 1])
-    with col_auto:
-        if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
+    st.markdown('<p class="zone-header">😨 한국 F&G 오실레이터</p>', unsafe_allow_html=True)
+    st.caption("자동(참고용): 무료 대체지표로 방향성만 확인  |  Excel(정밀): 원본 VKOSPI·국채선물·P/C ATM")
+    if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
             with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
                 kr_fg_auto = get_kr_fg_auto()
             if "error" in kr_fg_auto:
@@ -1764,10 +1790,7 @@ with tab2:
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             st.plotly_chart(_fig, use_container_width=True)
-    with col_xl:
-        st.caption("🎯 정밀 분석 — Excel 업로드 (VKOSPI·채권선물·P/C ATM 실제 데이터)")
-
-    st.caption("📂 피어앤그리드.xlsx 업로드 필요 (KOSPI / KOSDAQ 시트 포함) — 원본 로직 그대로 적용")
+    st.caption("📂 피어앤그리드.xlsx (KOSPI / KOSDAQ 시트) — 정밀 분석")
     fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
     if fg_file:
         try:
@@ -1824,12 +1847,8 @@ with tab2:
     st.divider()
 
     # ── 수급 자동 스크리닝 ──
-    st.markdown("### 📡 외국인 수급 자동 스크리닝 〔참고용〕")
-    st.warning(
-        "⚠️ **원본 로직과 다른 근사값입니다**\n\n"
-        "- 원본: 외국인·기관 20D/120D 순매수 모두 양수 → 교집합 / 유동시총 정규화\n"
-        "- 자동(참고용): **외국인 순매수만** (기관 데이터는 무료 소스 없음) | 수급 오실레이터로 방향성 참고"
-    )
+    st.markdown('<p class="zone-header">📡 외국인 수급 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
+    st.caption("외국인 순매수 누적 | 기관 데이터는 무료소스 없음 — 방향성만 참고")
     col_sa, col_sb = st.columns([1,2])
     with col_sa:
         supply_days = st.selectbox("집계 기간", [10,20,40], index=1, key="supply_days_sel")
@@ -1910,12 +1929,8 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 자동 ──
-    st.markdown("### 🤖 컨센서스 스크리닝 〔참고용〕")
-    st.warning(
-        "⚠️ **원본 로직과 다른 근사값입니다**\n\n"
-        "- 원본: EPS 컨센서스 **1개월 변화 > 3개월 변화** (진짜 가속도) → FnGuide/WiseFn 유료 데이터 필요\n"
-        "- 자동(참고용): WiseReport에서 **내년 추정EPS 성장률 + 매수비율 + TP인상비율** 합산 스코어 — 가속도 근사"
-    )
+    st.markdown('<p class="zone-header">🤖 컨센서스 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
+    st.caption("WiseReport: EPS성장률+매수비율+TP인상비율 합산 스코어 (원본과 근사치)")
     if st.button("▶ 컨센서스 스크리닝 〔참고용〕", key="kr_consensus_auto_run", use_container_width=True):
         with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 컨센서스 수집 중... (60~90초)"):
             cons_auto = get_kr_consensus_auto(top_n=20)
@@ -1947,11 +1962,8 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
-    st.markdown("### 📋 컨센 가속 & 수급 반영 〔정밀 분석〕")
-    st.success(
-        "✅ **원본 로직 그대로 적용** — EPS 1M변화 > 3M변화 가속 조건 + 외국인/기관 20D·120D 수급 교집합"
-    )
-    st.caption("📂 데이터 정리.xlsx 업로드 필요 (db 시트 포함)")
+    st.markdown('<p class="zone-header">📋 컨센 가속 & 수급 〔Excel 정밀〕</p>', unsafe_allow_html=True)
+    st.caption("📂 데이터 정리.xlsx (db 시트) — 원본 EPS가속(1M>3M) + 외국인/기관 교집합")
     consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
     if consensus_file:
         try:
@@ -1980,9 +1992,7 @@ with tab2:
 # 탭 3: 종목 분석
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    st.subheader("🔍 개별 종목 분석")
-
-    st.markdown("### 🎯 매수 타점 통계 분석")
+    st.markdown('<p class="zone-header">🎯 매수 타점 통계 분석</p>', unsafe_allow_html=True)
     st.caption("1년 데이터 기반 — 고가/저가/시가 평균 괴리율 (지정가 매수 참고용)")
 
     _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()], key=lambda x: x[0])
@@ -2037,7 +2047,7 @@ with tab3:
                 st.divider()
 
         st.divider()
-        st.markdown("### 📊 주간 CMF 추세판별기 + Elder Impulse")
+        st.markdown('<p class="zone-header">📊 주간 CMF 추세판별기</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 주간 추세 분석 중..."):
                 wt = get_weekly_trend(t)
@@ -2090,7 +2100,7 @@ with tab3:
                     st.error(f"추세판별기(주간) Excel 오류: {wkr['error']}")
                 else:
                     st.divider()
-                    st.markdown("### 📅 주간 추세판별기 〔Excel HTS 원천〕")
+                    st.markdown('<p class="zone-header">📅 주간 추세판별기 〔Excel HTS〕</p>', unsafe_allow_html=True)
                     st.caption(f"시트: {_wk_sn} | {wkr['rows']}주 | {wkr['date_range']}")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("CMF (4주)", f"{wkr['cmf']:.4f}", "🟢 자금유입" if wkr['cmf'] > 0 else "🔴 자금유출")
@@ -2140,7 +2150,7 @@ with tab3:
                 close_col_tsd = next((c for c in df_tsd.columns if '종가' in str(c)), None)
                 buy_label = buy_col if buy_col else "매수수량"
                 sell_label = sell_col if sell_col else "매도수량"
-                st.markdown("### 🏦 추세판별기 수급 〔Excel 정밀〕")
+                st.markdown('<p class="zone-header">🏦 추세판별기 수급 〔Excel〕</p>', unsafe_allow_html=True)
                 if buy_col and close_col_tsd:
                     df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
                     df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
@@ -2178,7 +2188,7 @@ with tab3:
                 st.error(f"추세판별기 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown("### 💰 거래대금 강도 오실레이터")
+        st.markdown('<p class="zone-header">💰 거래대금 강도</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 거래대금 강도 분석 중..."):
                 ti = get_trading_intensity(t)
@@ -2223,7 +2233,7 @@ with tab3:
             try:
                 trading_xl_file.seek(0)
                 df_txi = pd.read_excel(trading_xl_file, sheet_name=0, engine="openpyxl")
-                st.markdown("### 📊 거래대금 강도 — _RotationRate_ 〔Excel〕")
+                st.markdown('<p class="zone-header">📊 거래대금 강도 〔Excel RotationRate〕</p>', unsafe_allow_html=True)
                 date_col_xi = df_txi.columns[0]
                 rr_col = next((c for c in df_txi.columns if 'Rotation' in str(c) or 'rotation' in str(c) or '회전' in str(c)), None)
                 close_col_xi = next((c for c in df_txi.columns if '종가' in str(c)), None)
@@ -2257,12 +2267,12 @@ with tab3:
                 st.error(f"거래대금 강도 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown("### 📡 외국인 수급 오실레이터")
+        st.markdown('<p class="zone-header">📡 외국인 수급</p>', unsafe_allow_html=True)
         st.caption("한국 종목(.KS/.KQ)만 지원 | 네이버 파이낸스 외국인 순매수 60일")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
-                st.info(f"⚠️ {t}: 미국 종목은 수급 오실레이터 미지원")
+                st.caption(f"⚠️ {t}: 한국 종목(.KS/.KQ)만 수급 오실레이터 지원")
                 continue
             with st.spinner(f"{t} {kr} 수급 데이터 수집 중..."):
                 so = get_stock_supply_osc(t, chart_days=60, agg_days=20)
