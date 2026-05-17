@@ -723,6 +723,42 @@ def get_kr_stock_rs(top_n=15):
         return {"all":all_results,"strong":strong[:top_n] if strong else all_results[:top_n]}
     except Exception as e: return {"error":str(e)}
 
+def calc_kr_stock_rs_excel(df_close, top_n=15):
+    """종목상대강도데이터.xlsx 종가 시트로 RS 계산 (오프라인)"""
+    try:
+        date_col = df_close.columns[0]
+        df = df_close.copy()
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
+        bench_col = next((c for c in df.columns if '코스피' in str(c)), None)
+        if bench_col is None:
+            return {"error": "코스피 벤치마크 컬럼 없음"}
+        kospi = pd.to_numeric(df[bench_col], errors='coerce')
+        name_to_ticker = {v: k for k, v in KR_STOCKS.items()}
+        stock_cols = [c for c in df.columns if c != date_col and c != bench_col]
+        all_results = []
+        for col in stock_cols:
+            s = pd.to_numeric(df[col], errors='coerce')
+            mask = s.notna() & kospi.notna() & (s > 0) & (kospi > 0)
+            if mask.sum() < 52:
+                continue
+            rel = s[mask] / kospi[mask]
+            ma52 = rel.rolling(52).mean()
+            rs_s = (rel / ma52 - 1).dropna()
+            if rs_s.empty:
+                continue
+            rs_raw = float(rs_s.iloc[-1] * 100)
+            norm_rs = round(100 * (1 / (1 + np.exp(-rs_raw / 12))), 1)
+            ticker = name_to_ticker.get(str(col), str(col))
+            all_results.append({"ticker": ticker, "name": str(col), "norm_rs": norm_rs, "rs_raw": round(rs_raw, 1)})
+        if not all_results:
+            return {"error": "RS 계산 결과 없음"}
+        all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
+        strong = [r for r in all_results if r["norm_rs"] >= 70]
+        return {"all": all_results, "strong": strong[:top_n] if strong else all_results[:top_n]}
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_weekly_trend(ticker):
     try:
         t = ticker.strip().upper()
@@ -1457,9 +1493,21 @@ with tab2:
 
     # ── 한국 개별종목 RS ──
     st.markdown("### 📈 한국 개별종목 상대강도 (RS)")
+    rs_xl_file = st.file_uploader(
+        "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
+        help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
+    )
     if st.button("▶ 개별종목 RS 스크리닝", key="kr_stock_rs_run", use_container_width=True):
-        with st.spinner("한국 개별종목 RS 계산 중 (40종목씩 배치)..."):
-            kr_rs = get_kr_stock_rs(top_n=15)
+        if rs_xl_file:
+            rs_xl_file.seek(0)
+            _df_rs_close = pd.read_excel(rs_xl_file, sheet_name=0, engine="openpyxl")
+            with st.spinner(f"Excel 로컬 데이터로 RS 계산 중 ({len(_df_rs_close.columns)-2}종목)..."):
+                kr_rs = calc_kr_stock_rs_excel(_df_rs_close, top_n=15)
+            if "error" not in kr_rs:
+                st.caption(f"📂 출처: 종목상대강도데이터.xlsx | {len(_df_rs_close)}행 × {len(_df_rs_close.columns)-2}종목")
+        else:
+            with st.spinner("한국 개별종목 RS 계산 중 (40종목씩 배치)..."):
+                kr_rs = get_kr_stock_rs(top_n=15)
         if "error" in kr_rs:
             st.error(kr_rs["error"])
         else:
