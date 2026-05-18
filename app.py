@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _HAS_AUTOREFRESH = True
+except ImportError:
+    _HAS_AUTOREFRESH = False
 
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
@@ -496,6 +501,7 @@ def get_us_sector_rs():
 # ─────────────────────────────────────────────────────────────────────────────
 # 국내 지표 함수
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=timedelta(minutes=30))
 def get_market_summary():
     try:
         start=_td_back(5); end=datetime.today().strftime("%Y-%m-%d")
@@ -508,6 +514,7 @@ def get_market_summary():
                 "kosdaq":{"close":round(kq_l,2),"chg_pct":round((kq_l/kq_p-1)*100,2),"week_pct":round((kq_l/float(kq.iloc[0])-1)*100,2)}}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=timedelta(minutes=30))
 def get_sector_performance():
     try:
         r=requests.get(NAVER_ETF_URL,headers=HEADERS,timeout=15); etfs=r.json()["result"]["etfItemList"]
@@ -519,6 +526,7 @@ def get_sector_performance():
         return {"sectors":sd,"top3":[(n,d["chg_pct"]) for n,d in ss[:3]],"bot3":[(n,d["chg_pct"]) for n,d in ss[-3:]]}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=timedelta(minutes=30))
 def get_supply_oscillator():
     try:
         start=_td_back(25); end=datetime.today().strftime("%Y-%m-%d")
@@ -539,6 +547,7 @@ def get_supply_oscillator():
         return results
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=timedelta(minutes=30))
 def get_binzip_stocks(supply_data=None, top_n=5):
     try:
         lead=[n for n,_ in supply_data["strong"]][:2] if supply_data and "error" not in supply_data and supply_data.get("strong") else ["반도체","정보기술"]
@@ -568,6 +577,7 @@ def get_binzip_stocks(supply_data=None, top_n=5):
         return {"binzip":cands[:top_n],"scanned":len(stocks),"sectors":lead}
     except Exception as e: return {"error":str(e),"binzip":[]}
 
+@st.cache_data(ttl=timedelta(hours=1))
 def get_kr_etf_rs():
     try:
         tks=list(KOREA_ETFS.keys())
@@ -1213,6 +1223,7 @@ def get_stock_supply_osc(ticker, chart_days=60, agg_days=20):
         }
     except Exception as e: return {"error": str(e)}
 
+@st.cache_data(ttl=timedelta(minutes=30))
 def get_kr_supply_auto(top_n=20, days=20):
     """네이버 파이낸스 외국인 순매수 자동 스크리닝 + 수급 오실레이터 차트"""
     import concurrent.futures
@@ -1430,6 +1441,7 @@ def get_stock_inst_osc(ticker, days=20):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=timedelta(hours=2))
 def get_kr_consensus_auto(top_n=20):
     """WiseReport(네이버 내장) 컨센서스 자동 스크리닝 — EPS성장·매수비율·TP인상비율 기반"""
     import concurrent.futures
@@ -1728,9 +1740,43 @@ with tab1:
 # 탭 2: 국내 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
-    st.caption("장 마감 후 (오후 4시 이후) 실행 권장")
+    # ── KST 시간 + 자동 업데이트 ──
+    import datetime as _dt
+    _kst = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
+    _is_weekday   = _kst.weekday() < 5
+    _is_after_close = _kst.hour >= 16
+    _market_status = (
+        "🔴 장 마감 후" if _is_after_close else
+        ("🟢 장 중" if (_kst.hour >= 9 and (_kst.hour < 15 or (_kst.hour == 15 and _kst.minute <= 30))) else "⚫ 장 외")
+    )
+    _col_time, _col_toggle = st.columns([3, 1])
+    _col_time.caption(f"🕐 현재 KST {_kst.strftime('%H:%M')} | {_market_status} {'(평일)' if _is_weekday else '(주말)'}")
+
+    _auto_refresh_on = False
+    if _is_after_close and _is_weekday:
+        with _col_toggle:
+            _auto_refresh_on = st.toggle("🔄 자동", key="auto_refresh_toggle", value=False,
+                                          help="20분마다 자동 새로고침 (오후 4시 이후 평일만 활성화)")
+        if _auto_refresh_on and _HAS_AUTOREFRESH:
+            _refresh_count = st_autorefresh(interval=20 * 60 * 1000, key="tab2_autorefresh")
+            st.caption(f"⏱ 20분마다 자동 새로고침 중 | 총 {_refresh_count}회 갱신")
+        elif _auto_refresh_on and not _HAS_AUTOREFRESH:
+            st.caption("⚠ streamlit-autorefresh 패키지 설치 중...")
+    else:
+        _col_toggle.caption("")
+
+    # 4시 이후 오늘 첫 방문 시 자동 실행
+    _today_str = _kst.strftime("%Y-%m-%d")
+    _auto_ran_key = f"kr_auto_ran_{_today_str}"
+    if _is_after_close and _is_weekday and not st.session_state.get(_auto_ran_key):
+        st.info("장 마감 후입니다. **▶ 국내 지표 전체 실행** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
+
     st.markdown('<p class="zone-header">자동 시장 스캔</p>', unsafe_allow_html=True)
-    if st.button("▶ 국내 지표 전체 실행", type="primary", use_container_width=True, key="kr_run"):
+
+    # 자동 새로고침으로 재진입하거나 버튼 클릭 시 실행
+    _should_run = st.button("▶ 국내 지표 전체 실행", type="primary", use_container_width=True, key="kr_run")
+    if _should_run or (_auto_refresh_on and _is_after_close and _is_weekday):
+        st.session_state[_auto_ran_key] = True
         prog=st.progress(0, text="📊 코스피/코스닥 수집 중...")
         market=get_market_summary(); prog.progress(20, text="🏭 업종 ETF 수집 중...")
         sector=get_sector_performance(); prog.progress(40, text="💹 수급 오실레이터 계산 중...")
@@ -1738,6 +1784,7 @@ with tab2:
         kr_etf=get_kr_etf_rs(); prog.progress(80, text="🏠 빈집 스크리닝 중...")
         binzip=get_binzip_stocks(supply_data=supply); prog.progress(100, text="✅ 완료!")
         prog.empty()
+        st.caption(f"🕐 마지막 업데이트: {_kst.strftime('%Y-%m-%d %H:%M')} KST")
 
         # ── 지수 현황 ──
         st.markdown('<p class="zone-header">📊 지수 현황</p>', unsafe_allow_html=True)
