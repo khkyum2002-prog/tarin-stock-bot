@@ -1271,6 +1271,117 @@ def get_kr_supply_auto(top_n=20, days=20):
         "note": f"외국인 순매수량 × 종가 ({days}거래일 누적) | 출처: 네이버 파이낸스"
     }
 
+def get_krx_inst_market_flow(days=10):
+    """KRX 시장 전체 기관/외국인 순매수 (최근 N거래일) — pykrx"""
+    try:
+        from pykrx import stock as krx
+        import datetime as dt
+        today = dt.date.today()
+        start = today - dt.timedelta(days=days * 2 + 15)
+        result = {}
+        for mkt, label in [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]:
+            try:
+                df = krx.get_market_trading_value_by_investor(
+                    start.strftime("%Y%m%d"), today.strftime("%Y%m%d"), market=mkt
+                )
+                if df.empty: continue
+                df = df.tail(days)
+                inst_col = next((c for c in df.columns if '기관합계' in str(c)), None)
+                frgn_col = next((c for c in df.columns if '외국인합계' in str(c)), None) or \
+                           next((c for c in df.columns if '외국인' in str(c) and '기타' not in str(c)), None)
+                indv_col = next((c for c in df.columns if '개인' in str(c)), None)
+                if not inst_col: continue
+                result[label] = {
+                    "dates": [str(d.date()) for d in df.index],
+                    "inst": [int(v) for v in df[inst_col].tolist()],
+                    "frgn": [int(v) for v in df[frgn_col].tolist()] if frgn_col else [],
+                    "indv": [int(v) for v in df[indv_col].tolist()] if indv_col else [],
+                    "inst_sum_bil": round(float(df[inst_col].sum()) / 1e8, 0),
+                    "frgn_sum_bil": round(float(df[frgn_col].sum()) / 1e8, 0) if frgn_col else 0,
+                }
+            except: continue
+        if not result:
+            return {"error": "KRX 데이터 수집 실패 (pykrx)"}
+        return {"data": result, "days": days, "date": today.strftime("%Y-%m-%d")}
+    except ImportError:
+        return {"error": "pykrx 미설치"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_krx_volume_strength():
+    """KOSPI 거래대금 강도 (RotationRate) 자동 계산 — pykrx"""
+    try:
+        from pykrx import stock as krx
+        import datetime as dt
+        today = dt.date.today()
+        start = today - dt.timedelta(days=90)
+        df = krx.get_index_ohlcv_by_date(start.strftime("%Y%m%d"), today.strftime("%Y%m%d"), "1001")
+        if df.empty: return {"error": "KOSPI 인덱스 데이터 없음"}
+        tv_col = next((c for c in df.columns if '거래대금' in str(c)), None)
+        if not tv_col: return {"error": "거래대금 컬럼 없음"}
+        tv = df[tv_col].dropna()
+        if len(tv) < 21: return {"error": "데이터 부족 (최소 21일 필요)"}
+        ma20 = tv.rolling(20).mean()
+        cur = float(tv.iloc[-1]); ma = float(ma20.iloc[-1])
+        rate = round(cur / ma * 100, 1) if ma > 0 else 0
+        level = "과열" if rate > 150 else ("활발" if rate > 110 else ("보통" if rate > 80 else "저조"))
+        tail30 = tv.tail(30); ma20_tail = ma20.tail(30)
+        return {
+            "date": str(tv.index[-1].date()),
+            "today_tril": round(cur / 1e12, 2),
+            "ma20_tril": round(ma / 1e12, 2),
+            "rotation_rate": rate,
+            "level": level,
+            "chart": {
+                "dates": [str(d.date()) for d in tail30.index],
+                "values": [round(v/1e12, 2) for v in tail30.tolist()],
+                "ma20": [round(v/1e12, 2) if pd.notna(v) else None for v in ma20_tail.tolist()]
+            }
+        }
+    except ImportError:
+        return {"error": "pykrx 미설치"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_stock_inst_osc(ticker, days=20):
+    """개별 종목 기관/외국인 순매수 오실레이터 — pykrx"""
+    try:
+        from pykrx import stock as krx
+        import datetime as dt
+        code = ticker.replace(".KS","").replace(".KQ","")
+        today = dt.date.today()
+        start = today - dt.timedelta(days=days * 2 + 15)
+        df = krx.get_market_trading_value_by_investor(
+            start.strftime("%Y%m%d"), today.strftime("%Y%m%d"), code
+        )
+        if df.empty: return {"error": "기관 데이터 없음"}
+        df = df.tail(days)
+        inst_col = next((c for c in df.columns if '기관합계' in str(c)), None)
+        frgn_col = next((c for c in df.columns if '외국인합계' in str(c)), None) or \
+                   next((c for c in df.columns if '외국인' in str(c) and '기타' not in str(c)), None)
+        if not inst_col: return {"error": "기관합계 컬럼 없음"}
+        inst_vals = [int(v) for v in df[inst_col].tolist()]
+        frgn_vals = [int(v) for v in df[frgn_col].tolist()] if frgn_col else []
+        inst_s = pd.Series(inst_vals)
+        ma5 = inst_s.rolling(5, min_periods=1).mean()
+        cum = inst_s.rolling(days, min_periods=1).sum()
+        return {
+            "ticker": ticker, "days": days,
+            "inst_sum_bil": round(sum(inst_vals) / 1e8, 1),
+            "frgn_sum_bil": round(sum(frgn_vals) / 1e8, 1) if frgn_vals else 0,
+            "chart": {
+                "dates": [str(d.date()) for d in df.index],
+                "inst_daily": [round(v/1e8, 1) for v in inst_vals],
+                "inst_ma5":   [round(v/1e8, 1) for v in ma5.tolist()],
+                "inst_cum":   [round(v/1e8, 1) for v in cum.tolist()],
+                "frgn_daily": [round(v/1e8, 1) for v in frgn_vals] if frgn_vals else [],
+            }
+        }
+    except ImportError:
+        return {"error": "pykrx 미설치"}
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_kr_consensus_auto(top_n=20):
     """WiseReport(네이버 내장) 컨센서스 자동 스크리닝 — EPS성장·매수비율·TP인상비율 기반"""
     import concurrent.futures
@@ -1948,6 +2059,54 @@ with tab2:
 
     st.divider()
 
+    # ── KRX 기관 순매수 + 거래대금 강도 ──
+    st.markdown('<p class="zone-header">🏦 기관 순매수 + 거래대금 강도 〔KRX 자동〕</p>', unsafe_allow_html=True)
+    st.caption("KOSPI/KOSDAQ 시장 전체 기관·외국인 순매수 + 거래대금 강도 | 출처: KRX (pykrx)")
+    if st.button("▶ 기관 수급 + 거래대금 강도 조회 (KRX)", key="kr_inst_flow_run", use_container_width=True):
+        with st.spinner("KRX 데이터 수집 중 (10~20초)..."):
+            inst_flow = get_krx_inst_market_flow(days=10)
+            vol_str = get_krx_volume_strength()
+        if "error" not in vol_str:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("KOSPI 거래대금 (오늘)", f"{vol_str['today_tril']:.2f}조")
+            c2.metric("20일 평균", f"{vol_str['ma20_tril']:.2f}조")
+            c3.metric("거래대금 강도", f"{vol_str['rotation_rate']:.0f}%", vol_str["level"])
+            if vol_str.get("chart"):
+                ch = vol_str["chart"]
+                fig_tv = go.Figure()
+                fig_tv.add_trace(go.Bar(x=ch["dates"], y=ch["values"], name="일별 거래대금",
+                                        marker_color="#6A5ACD", opacity=0.7))
+                fig_tv.add_trace(go.Scatter(x=ch["dates"], y=ch["ma20"], name="MA20",
+                                            line=dict(color="#FF8C00", width=2, dash="dot")))
+                fig_tv = _chart_layout(fig_tv, height=220)
+                fig_tv.update_yaxes(title_text="거래대금(조원)")
+                st.plotly_chart(fig_tv, use_container_width=True)
+        else:
+            st.caption(f"거래대금 강도: {vol_str['error']}")
+        if "error" not in inst_flow:
+            st.caption(f"기준: {inst_flow['date']} | 최근 {inst_flow['days']}거래일")
+            for mkt, d in inst_flow["data"].items():
+                ic = "🟢" if d["inst_sum_bil"] >= 0 else "🔴"
+                fc = "🟢" if d.get("frgn_sum_bil", 0) >= 0 else "🔴"
+                st.markdown(f"**{mkt}** | {ic} 기관합계: {d['inst_sum_bil']:+,.0f}억 | {fc} 외국인: {d.get('frgn_sum_bil', 0):+,.0f}억")
+                if d["inst"]:
+                    fig_inst = go.Figure()
+                    bc_i = ["#00c853" if v >= 0 else "#ff4b4b" for v in d["inst"]]
+                    fig_inst.add_trace(go.Bar(x=d["dates"], y=[v/1e8 for v in d["inst"]],
+                                              name="기관합계", marker_color=bc_i, opacity=0.8))
+                    if d.get("frgn"):
+                        bc_f = ["#6A5ACD" if v >= 0 else "#B03A2E" for v in d["frgn"]]
+                        fig_inst.add_trace(go.Bar(x=d["dates"], y=[v/1e8 for v in d["frgn"]],
+                                                  name="외국인", marker_color=bc_f, opacity=0.6))
+                    fig_inst = _chart_layout(fig_inst, height=200)
+                    fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원)")
+                    fig_inst.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+                    st.plotly_chart(fig_inst, use_container_width=True)
+        else:
+            st.caption(f"기관 순매수: {inst_flow['error']}")
+
+    st.divider()
+
     # ── 컨센 가속 자동 ──
     st.markdown('<p class="zone-header">🤖 컨센서스 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
     st.caption("WiseReport: EPS성장률+매수비율+TP인상비율 합산 스코어 (원본과 근사치)")
@@ -2350,3 +2509,43 @@ with tab3:
             fig_so.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             st.plotly_chart(fig_so, use_container_width=True)
             st.divider()
+
+        st.markdown('<p class="zone-header">🏦 기관 수급 〔KRX 자동〕</p>', unsafe_allow_html=True)
+        st.caption("개별 종목 기관/외국인 순매수 — KRX (pykrx) | 한국 종목(.KS/.KQ)만 지원")
+        for t in tickers_to_run:
+            kr = TICKER_NAMES.get(t, "")
+            if not (t.endswith(".KS") or t.endswith(".KQ")):
+                st.caption(f"⚠️ {t}: 한국 종목(.KS/.KQ)만 기관 수급 지원")
+                continue
+            with st.spinner(f"{t} {kr} 기관 데이터 조회 중..."):
+                si = get_stock_inst_osc(t, days=20)
+            if "error" in si:
+                st.caption(f"❌ {t} {kr}: {si['error']}")
+                continue
+            st.markdown(f"#### 📌 **{t}** {kr}")
+            si_sign = "+" if si["inst_sum_bil"] >= 0 else ""
+            sf_sign = "+" if si.get("frgn_sum_bil", 0) >= 0 else ""
+            c1, c2 = st.columns(2)
+            c1.metric("20일 기관 순매수", f"{si_sign}{si['inst_sum_bil']:.1f}억",
+                      "🟢 순매수" if si["inst_sum_bil"] >= 0 else "🔴 순매도")
+            c2.metric("20일 외국인 순매수(KRX)", f"{sf_sign}{si.get('frgn_sum_bil', 0):.1f}억",
+                      "🟢 순매수" if si.get("frgn_sum_bil", 0) >= 0 else "🔴 순매도")
+            ch_si = si["chart"]
+            bc_si = ["#00c853" if v >= 0 else "#ff4b4b" for v in ch_si["inst_daily"]]
+            fig_si = go.Figure()
+            fig_si.add_trace(go.Bar(x=ch_si["dates"], y=ch_si["inst_daily"],
+                                    name="기관 일별", marker_color=bc_si, opacity=0.7))
+            fig_si.add_trace(go.Scatter(x=ch_si["dates"], y=ch_si["inst_ma5"],
+                                        name="MA5", line=dict(color="#FF8C00", width=2)))
+            fig_si.add_trace(go.Scatter(x=ch_si["dates"], y=ch_si["inst_cum"],
+                                        name="누적", line=dict(color="#6A5ACD", width=1.5, dash="dot")))
+            if ch_si.get("frgn_daily"):
+                fig_si.add_trace(go.Scatter(x=ch_si["dates"], y=ch_si["frgn_daily"],
+                                            name="외국인", line=dict(color="#00B3B3", width=1.5)))
+            fig_si.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+            fig_si.update_layout(height=320, margin=dict(l=10,r=30,t=30,b=10),
+                                  plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                                  font_color="#e0e0e0", legend=dict(orientation="h", y=1.08))
+            fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+            fig_si.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+            st.plotly_chart(fig_si, use_container_width=True)
