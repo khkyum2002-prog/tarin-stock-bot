@@ -501,18 +501,46 @@ def get_us_sector_rs():
 # ─────────────────────────────────────────────────────────────────────────────
 # 국내 지표 함수
 # ─────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=timedelta(minutes=30))
+@st.cache_data(ttl=timedelta(minutes=5))
 def get_market_summary():
-    try:
-        start=_td_back(5); end=datetime.today().strftime("%Y-%m-%d")
-        kp=_close("^KS11",start=start,end=end); kq=_close("^KQ11",start=start,end=end)
-        if kp.empty or kq.empty: return {"error":"데이터 없음"}
-        kp_l=float(kp.iloc[-1]); kp_p=float(kp.iloc[-2]) if len(kp)>=2 else kp_l
-        kq_l=float(kq.iloc[-1]); kq_p=float(kq.iloc[-2]) if len(kq)>=2 else kq_l
-        return {"date":kp.index[-1].strftime("%Y-%m-%d"),
-                "kospi":{"close":round(kp_l,2),"chg_pct":round((kp_l/kp_p-1)*100,2),"week_pct":round((kp_l/float(kp.iloc[0])-1)*100,2)},
-                "kosdaq":{"close":round(kq_l,2),"chg_pct":round((kq_l/kq_p-1)*100,2),"week_pct":round((kq_l/float(kq.iloc[0])-1)*100,2)}}
-    except Exception as e: return {"error":str(e)}
+    """코스피/코스닥 — 네이버 실시간 polling API (고가/저가/등락률 포함)"""
+    hdrs = {"User-Agent":"Mozilla/5.0","Referer":"https://finance.naver.com/"}
+    def _fetch_index(idx_code):
+        try:
+            r = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/index/{idx_code}",
+                             headers=hdrs, timeout=8)
+            d = r.json()["datas"][0]
+            def _n(k): return float(str(d.get(k,"0")).replace(",","")) if d.get(k) else 0.0
+            close = _n("closePrice"); prev = close - _n("compareToPreviousClosePrice")
+            high  = _n("highPrice");  low  = _n("lowPrice"); open_ = _n("openPrice")
+            pct   = float(d.get("fluctuationsRatio","0") or 0)
+            vol_range = round((high - low) / prev * 100, 2) if prev > 0 else 0.0
+            return {
+                "close": close, "prev": round(prev, 2),
+                "chg": round(_n("compareToPreviousClosePrice"), 2),
+                "chg_pct": pct,
+                "open": open_, "high": high, "low": low,
+                "vol_range": vol_range,  # 하루 변동폭 (고가-저가)/전일종가
+                "direction": d.get("compareToPreviousPrice",{}).get("text",""),
+                "market_status": d.get("marketStatus",""),
+            }
+        except: return None
+    kp = _fetch_index("KOSPI")
+    kq = _fetch_index("KOSDAQ")
+    if not kp or not kq:
+        # fallback: Yahoo Finance
+        try:
+            start=_td_back(5); end=datetime.today().strftime("%Y-%m-%d")
+            kps=_close("^KS11",start=start,end=end); kqs=_close("^KQ11",start=start,end=end)
+            if kps.empty or kqs.empty: return {"error":"데이터 없음"}
+            kp_l=float(kps.iloc[-1]); kp_p=float(kps.iloc[-2]) if len(kps)>=2 else kp_l
+            kq_l=float(kqs.iloc[-1]); kq_p=float(kqs.iloc[-2]) if len(kqs)>=2 else kq_l
+            kp={"close":kp_l,"chg_pct":round((kp_l/kp_p-1)*100,2),"chg":round(kp_l-kp_p,2),"high":kp_l,"low":kp_l,"open":kp_l,"vol_range":0,"direction":"","market_status":"CLOSE"}
+            kq={"close":kq_l,"chg_pct":round((kq_l/kq_p-1)*100,2),"chg":round(kq_l-kq_p,2),"high":kq_l,"low":kq_l,"open":kq_l,"vol_range":0,"direction":"","market_status":"CLOSE"}
+        except Exception as e: return {"error":str(e)}
+    import datetime as _dt
+    _kst = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
+    return {"date": _kst.strftime("%Y-%m-%d %H:%M"), "kospi": kp, "kosdaq": kq}
 
 @st.cache_data(ttl=timedelta(minutes=30))
 def get_sector_performance():
@@ -1790,13 +1818,29 @@ with tab2:
         st.markdown('<p class="zone-header">📊 지수 현황</p>', unsafe_allow_html=True)
         if market and "error" not in market:
             kp=market["kospi"]; kq=market["kosdaq"]
+            st.caption(f"기준: {market['date']} KST | 출처: 네이버 실시간")
             c1,c2=st.columns(2)
-            c1.metric(f"코스피 ({market['date']})", f"{kp['close']:,.2f}",
-                      f"{kp['chg_pct']:+.2f}% · 주간 {kp['week_pct']:+.2f}%",
-                      delta_color="normal")
-            c2.metric("코스닥", f"{kq['close']:,.2f}",
-                      f"{kq['chg_pct']:+.2f}% · 주간 {kq['week_pct']:+.2f}%",
-                      delta_color="normal")
+            # 등락률을 메인 수치로, 현재가를 보조로
+            kp_arrow = "▲" if kp['chg_pct'] >= 0 else "▼"
+            kq_arrow = "▲" if kq['chg_pct'] >= 0 else "▼"
+            c1.metric(
+                f"코스피 {kp_arrow} {kp['chg_pct']:+.2f}%",
+                f"{kp['close']:,.2f}",
+                f"전일대비 {kp['chg']:+.2f}pt | 변동폭 {kp['vol_range']:.2f}%",
+                delta_color="normal"
+            )
+            c2.metric(
+                f"코스닥 {kq_arrow} {kq['chg_pct']:+.2f}%",
+                f"{kq['close']:,.2f}",
+                f"전일대비 {kq['chg']:+.2f}pt | 변동폭 {kq['vol_range']:.2f}%",
+                delta_color="normal"
+            )
+            # 고가/저가/시가 상세
+            c1, c2 = st.columns(2)
+            with c1:
+                st.caption(f"코스피  시가 {kp['open']:,.2f}  고가 {kp['high']:,.2f}  저가 {kp['low']:,.2f}")
+            with c2:
+                st.caption(f"코스닥  시가 {kq['open']:,.2f}  고가 {kq['high']:,.2f}  저가 {kq['low']:,.2f}")
         elif market: st.error(market.get("error"))
 
         st.divider()
