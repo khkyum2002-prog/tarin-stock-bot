@@ -17,60 +17,154 @@ except ImportError:
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
-st.set_page_config(page_title="퇴근길 주식", page_icon="📈", layout="centered")
-st.markdown("""<style>
+st.set_page_config(page_title="퇴근길 주식", page_icon="📈", layout="wide")
+st.markdown("""
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── 기본 폰트 / 배경 ── */
+*, *::before, *::after { font-family: 'Inter', sans-serif !important; }
+.stApp { background: #0d1117; }
+#MainMenu, footer { visibility: hidden; }
+.block-container { max-width: 1100px; padding: 1.5rem 2rem 3rem; }
+
 /* ── 메트릭 카드 ── */
 div[data-testid="metric-container"] {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin: 3px 0;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 2px 0;
 }
-[data-testid="stMetricValue"] { font-size: 1.05rem !important; }
-[data-testid="stMetricLabel"] { font-size: 0.78rem !important; color: rgba(255,255,255,0.6) !important; }
+[data-testid="stMetricValue"] {
+    font-size: 1.35rem !important;
+    font-weight: 700 !important;
+    color: #e6edf3 !important;
+    letter-spacing: -0.02em;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    color: #7d8590 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+[data-testid="stMetricDelta"] { font-size: 0.82rem !important; }
+
 /* ── 탭 ── */
-.stTabs [data-baseweb="tab"] { font-weight: 700; font-size: 0.95rem; }
-hr { margin: 0.5rem 0; }
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    border-bottom: 1px solid #21262d;
+    background: transparent;
+}
+.stTabs [data-baseweb="tab"] {
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: #7d8590;
+    padding: 10px 20px;
+    background: transparent !important;
+    border-bottom: 2px solid transparent;
+}
+.stTabs [aria-selected="true"] {
+    color: #e6edf3 !important;
+    border-bottom: 2px solid #2f81f7 !important;
+}
+
+/* ── 섹션 헤더 (zone-header) ── */
+.zone-header {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: #7d8590;
+    text-transform: uppercase;
+    margin: 1.8rem 0 0.8rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #21262d;
+    display: block;
+}
+
 /* ── 신호 카드 ── */
 .sig-green {
-    background: rgba(0,200,83,0.12);
-    border-left: 3px solid #00c853;
-    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
-    font-size: 0.88rem;
+    background: rgba(63,185,80,0.08);
+    border-left: 3px solid #3fb950;
+    border-radius: 6px; padding: 9px 14px; margin: 4px 0;
+    font-size: 0.875rem; color: #e6edf3;
 }
 .sig-red {
-    background: rgba(255,75,75,0.12);
-    border-left: 3px solid #ff4b4b;
-    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
-    font-size: 0.88rem;
+    background: rgba(248,81,73,0.08);
+    border-left: 3px solid #f85149;
+    border-radius: 6px; padding: 9px 14px; margin: 4px 0;
+    font-size: 0.875rem; color: #e6edf3;
 }
 .sig-yellow {
-    background: rgba(255,193,7,0.12);
-    border-left: 3px solid #ffc107;
-    border-radius: 6px; padding: 8px 12px; margin: 4px 0;
-    font-size: 0.88rem;
+    background: rgba(210,153,34,0.1);
+    border-left: 3px solid #d29922;
+    border-radius: 6px; padding: 9px 14px; margin: 4px 0;
+    font-size: 0.875rem; color: #e6edf3;
 }
-/* ── 섹션 헤더 ── */
-.zone-header {
-    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
-    color: rgba(255,255,255,0.4); text-transform: uppercase;
-    margin: 1.2rem 0 0.4rem;
-}
-/* ── 업로더 영역 ── */
-div[data-testid="stFileUploader"] label {
-    font-size: 0.82rem !important;
-}
+
 /* ── 버튼 ── */
 div[data-testid="stButton"] button[kind="primary"] {
-    background: linear-gradient(135deg,#1a73e8,#0d47a1);
-    border: none; border-radius: 8px;
+    background: #238636;
+    border: 1px solid rgba(240,246,252,0.1);
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: background 0.15s;
 }
+div[data-testid="stButton"] button[kind="primary"]:hover { background: #2ea043; }
+div[data-testid="stButton"] button:not([kind="primary"]) {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    font-size: 0.875rem;
+}
+
+/* ── 구분선 ── */
+hr { border: none; border-top: 1px solid #21262d; margin: 1.2rem 0; }
+
+/* ── 파일 업로더 ── */
+div[data-testid="stFileUploader"] {
+    background: #161b22;
+    border: 1px dashed #30363d;
+    border-radius: 8px;
+}
+div[data-testid="stFileUploader"] label { font-size: 0.82rem !important; color: #7d8590; }
+
+/* ── 익스팬더 ── */
+div[data-testid="stExpander"] {
+    border: 1px solid #21262d !important;
+    border-radius: 8px;
+    background: #161b22;
+}
+div[data-testid="stExpander"] summary {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: #c9d1d9;
+}
+
+/* ── 캡션 ── */
+.stCaption p { color: #7d8590 !important; font-size: 0.78rem !important; }
+
+/* ── 토글 ── */
+div[data-testid="stToggle"] label { font-size: 0.875rem; }
+
+/* ── 스크롤바 ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
 </style>""", unsafe_allow_html=True)
 
 _days = ["월","화","수","목","금","토","일"]
-st.title("📈 퇴근길 주식")
-st.caption(f"오늘: {datetime.today().strftime('%Y-%m-%d')} ({_days[datetime.today().weekday()]}요일)")
+import datetime as _dt_hdr
+_kst_hdr = _dt_hdr.datetime.utcnow() + _dt_hdr.timedelta(hours=9)
+_status_dot = "🟢" if (9 <= _kst_hdr.hour < 15 or (_kst_hdr.hour == 15 and _kst_hdr.minute <= 30)) and _kst_hdr.weekday() < 5 else "⚫"
+st.markdown(
+    f'<h2 style="margin:0;font-size:1.4rem;font-weight:700;color:#e6edf3;letter-spacing:-0.03em;">퇴근길 주식 {_status_dot}</h2>'
+    f'<p style="margin:2px 0 1rem;font-size:0.78rem;color:#7d8590;">'
+    f'{_kst_hdr.strftime("%Y-%m-%d")} ({_days[_kst_hdr.weekday()]}요일) &nbsp;·&nbsp; {_kst_hdr.strftime("%H:%M")} KST</p>',
+    unsafe_allow_html=True
+)
 
 tab1, tab2, tab3 = st.tabs(["🌎 미국 지표", "🇰🇷 국내 지표", "🔍 종목 분석"])
 
@@ -1610,8 +1704,14 @@ def calc_consensus_excel(df_db):
 # ── 공통 차트 헬퍼 ──
 def _chart_layout(fig, height=360):
     fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10),
-                      plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                      font_color='#e0e0e0', legend=dict(orientation='h',y=1.08))
+                      plot_bgcolor='#0d1117', paper_bgcolor='rgba(0,0,0,0)',
+                      font=dict(color='#c9d1d9', family='Inter, sans-serif'),
+                      legend=dict(orientation='h', y=1.08, bgcolor='rgba(0,0,0,0)',
+                                  font=dict(size=11)),
+                      xaxis=dict(showgrid=True, gridcolor='#21262d', gridwidth=1,
+                                 zeroline=False, color='#7d8590'),
+                      yaxis=dict(showgrid=True, gridcolor='#21262d', gridwidth=1,
+                                 zeroline=False, color='#7d8590'))
     fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
     fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
     return fig
