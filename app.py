@@ -1790,8 +1790,10 @@ with tab2:
         rs_xl_file.seek(0); st.session_state["c_rs_bytes"] = rs_xl_file.read()
     if st.button("▶ 개별종목 RS 스크리닝", key="kr_stock_rs_run", use_container_width=True):
         if "c_rs_bytes" in st.session_state:
-            _df_rs_close = pd.read_excel(io.BytesIO(st.session_state["c_rs_bytes"]), sheet_name=0, engine="openpyxl")
-            with st.spinner(f"Excel 로컬 데이터로 RS 계산 중 ({len(_df_rs_close.columns)-2}종목)..."):
+            _xl_rs = pd.ExcelFile(io.BytesIO(st.session_state["c_rs_bytes"]), engine="openpyxl")
+            _rs_sn = next((s for s in _xl_rs.sheet_names if '종가' in str(s) or 'close' in str(s).lower()), _xl_rs.sheet_names[0])
+            _df_rs_close = pd.read_excel(io.BytesIO(st.session_state["c_rs_bytes"]), sheet_name=_rs_sn, engine="openpyxl")
+            with st.spinner(f"Excel 로컬 데이터로 RS 계산 중 ({len(_df_rs_close.columns)-2}종목, 시트:{_rs_sn})..."):
                 _tmp_rs = calc_kr_stock_rs_excel(_df_rs_close, top_n=15)
             if "error" not in _tmp_rs:
                 st.session_state["c_kr_rs"] = _tmp_rs
