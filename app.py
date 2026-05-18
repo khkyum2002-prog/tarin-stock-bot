@@ -18,9 +18,8 @@ warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="퇴근길 주식", page_icon="📈", layout="wide")
-st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 /* ── 기본 폰트 / 배경 ── */
 *, *::before, *::after { font-family: 'Inter', sans-serif !important; }
 .stApp { background: #0d1117; }
