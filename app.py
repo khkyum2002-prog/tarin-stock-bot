@@ -1283,6 +1283,132 @@ def get_naver_realtime_quote(codes):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=timedelta(hours=6))
+def get_dart_profile(ticker, dart_key):
+    """DART Open API — 분기/반기/사업보고서 핵심 파싱 (사업개요, 주요제품, 수주현황, 매출현황)"""
+    import zipfile
+    from io import BytesIO
+    from bs4 import BeautifulSoup
+    import datetime as _dt
+
+    if not dart_key:
+        return {"error": "DART_API_KEY 미설정"}
+
+    code = ticker.replace(".KS", "").replace(".KQ", "").zfill(6)
+    hdrs = {"User-Agent": "Mozilla/5.0"}
+    base = "https://opendart.fss.or.kr/api"
+
+    try:
+        # 1. 회사 기본정보 → corp_code
+        r1 = requests.get(f"{base}/company.json",
+                          params={"crtfc_key": dart_key, "stock_code": code},
+                          headers=hdrs, timeout=10)
+        cj = r1.json()
+        if cj.get("status") != "000":
+            return {"error": f"회사 조회 실패: {cj.get('message', '')}"}
+        corp_code  = cj["corp_code"]
+        corp_name  = cj.get("corp_name", "")
+        industry   = cj.get("induty_code", "")
+        ceo        = cj.get("ceo_nm", "")
+        est_dt     = cj.get("est_dt", "")
+        empl_no    = cj.get("empl_no", "")
+        address    = cj.get("adres", "")
+
+        # 2. 최신 보고서 목록 (1년치)
+        today     = _dt.date.today().strftime("%Y%m%d")
+        year_ago  = (_dt.date.today() - _dt.timedelta(days=365)).strftime("%Y%m%d")
+        r2 = requests.get(f"{base}/list.json",
+                          params={"crtfc_key": dart_key, "corp_code": corp_code,
+                                  "bgn_de": year_ago, "end_de": today,
+                                  "pblntf_ty": "A", "page_count": 10},
+                          headers=hdrs, timeout=10)
+        filings = r2.json().get("list", [])
+
+        target = None
+        for ptype in ["A003", "A002", "A001"]:
+            matches = [f for f in filings if f.get("pblntf_detail_ty") == ptype]
+            if matches:
+                target = sorted(matches, key=lambda x: x.get("rcept_dt", ""), reverse=True)[0]
+                break
+
+        base_result = {
+            "corp_name": corp_name, "industry": industry, "ceo": ceo,
+            "est_dt": est_dt, "empl_no": empl_no, "address": address,
+            "overview": None, "products_html": None,
+            "orders_html": None, "sales_html": None, "error": None,
+        }
+        if not target:
+            base_result["report_type"] = "보고서 없음"
+            base_result["report_date"] = ""
+            return base_result
+
+        rcept_no = target["rcept_no"]
+        rpt_map  = {"A003": "분기보고서", "A002": "반기보고서", "A001": "사업보고서"}
+        base_result["report_type"] = rpt_map.get(target.get("pblntf_detail_ty", ""), "보고서")
+        base_result["report_date"] = target.get("rcept_dt", "")
+
+        # 3. 문서 ZIP 다운로드 + 파싱
+        r3 = requests.get(f"{base}/document.json",
+                          params={"crtfc_key": dart_key, "rcept_no": rcept_no},
+                          headers=hdrs, timeout=40)
+        try:
+            zf = zipfile.ZipFile(BytesIO(r3.content))
+            xml_files = [n for n in zf.namelist()
+                         if (n.endswith('.xml') or n.endswith('.html')) and not n.startswith('__')]
+            if not xml_files:
+                return base_result
+            raw = zf.read(xml_files[0])
+            soup = BeautifulSoup(raw, "lxml")
+
+            def _section_text(keywords, max_chars=700):
+                for kw in keywords:
+                    for tag in soup.find_all(string=lambda t: t and kw in t):
+                        texts = []
+                        for el in tag.parent.find_all_next():
+                            if el.name in ('p', 'P', 'div', 'span', 'td', 'li'):
+                                txt = el.get_text(" ", strip=True)
+                                if txt and len(txt) > 8:
+                                    texts.append(txt)
+                            if sum(len(s) for s in texts) >= max_chars:
+                                break
+                        result = " ".join(texts)[:max_chars]
+                        if len(result) > 30:
+                            return result
+                return None
+
+            def _table_html(keywords):
+                for kw in keywords:
+                    for tag in soup.find_all(string=lambda t: t and kw in t):
+                        for el in tag.parent.find_all_next():
+                            if el.name == 'table':
+                                try:
+                                    df = pd.read_html(str(el))[0]
+                                    if df.shape[0] >= 1 and df.shape[1] >= 2:
+                                        style = (
+                                            "style='width:100%;border-collapse:collapse;"
+                                            "font-size:0.82rem;color:#e6edf3;'"
+                                        )
+                                        td_style = "style='padding:4px 8px;border:1px solid #21262d;'"
+                                        html = df.head(20).to_html(
+                                            index=False, border=0, classes="dart-tbl"
+                                        ).replace("<table", f"<table {style}")
+                                        return html
+                                except Exception:
+                                    pass
+                return None
+
+            base_result["overview"]      = _section_text(["사업의 개요", "회사의 개요", "사업 개요"])
+            base_result["products_html"] = _table_html(["주요 제품", "주요제품", "제품 및 서비스"])
+            base_result["orders_html"]   = _table_html(["수주현황", "수주 현황"])
+            base_result["sales_html"]    = _table_html(["매출현황", "매출 현황", "매출액 현황"])
+        except Exception:
+            pass
+
+        return base_result
+
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_stock_supply_osc(ticker, chart_days=60, agg_days=20):
     """단일 한국 종목 수급 오실레이터 — 네이버 파이낸스 기관+외국인 순매매"""
     from bs4 import BeautifulSoup
@@ -2459,6 +2585,52 @@ with tab3:
         # 한국 종목만 실시간 현재가 일괄 조회
         kr_tickers = [t for t in tickers_to_run if t.endswith(".KS") or t.endswith(".KQ")]
         _rt_quotes = get_naver_realtime_quote(kr_tickers) if kr_tickers else {}
+
+        # ── DART 기업 프로필 ──────────────────────────────────────────────────
+        _dart_key = st.secrets.get("DART_API_KEY", "") if hasattr(st, "secrets") else ""
+        st.markdown('<p class="zone-header">🏢 기업 프로필 〔DART 보고서〕</p>', unsafe_allow_html=True)
+        if not _dart_key:
+            st.caption("DART API 키가 설정되지 않았습니다. Streamlit Secrets에 DART_API_KEY를 추가하면 분기/사업보고서 핵심 내용(사업개요·주요제품·수주현황)을 자동으로 표시합니다.")
+        elif not kr_tickers:
+            st.caption("DART 조회는 한국 종목(.KS / .KQ)만 지원합니다.")
+        else:
+            for t in kr_tickers:
+                _kr_name = TICKER_NAMES.get(t, "")
+                with st.spinner(f"{t} {_kr_name} — DART 보고서 로딩 중..."):
+                    _dp = get_dart_profile(t, _dart_key)
+                if _dp.get("error"):
+                    st.caption(f"⚠️ {t}: DART 조회 실패 — {_dp['error']}")
+                    continue
+                _rdate = _dp.get("report_date", "")
+                _rdate_fmt = f"{_rdate[:4]}-{_rdate[4:6]}-{_rdate[6:]}" if len(_rdate) == 8 else _rdate
+                _est = _dp.get("est_dt", "")
+                _est_fmt = f"{_est[:4]}-{_est[4:6]}-{_est[6:]}" if len(_est) == 8 else _est
+                st.markdown(
+                    f"**{_dp['corp_name']}** &nbsp;|&nbsp; 업종코드: `{_dp.get('industry','')}`"
+                    f" &nbsp;|&nbsp; 대표: {_dp.get('ceo','')}"
+                    f" &nbsp;|&nbsp; 설립: {_est_fmt}"
+                    f" &nbsp;|&nbsp; 직원: {_dp.get('empl_no','')}명",
+                    unsafe_allow_html=True
+                )
+                if _dp.get("address"):
+                    st.caption(f"📍 {_dp['address']}")
+                st.caption(f"[{_dp.get('report_type','')} {_rdate_fmt} 접수]")
+                if _dp.get("overview"):
+                    with st.expander("📋 사업의 개요", expanded=True):
+                        st.write(_dp["overview"])
+                else:
+                    st.caption("사업의 개요 섹션을 찾지 못했습니다.")
+                if _dp.get("products_html"):
+                    st.markdown("**주요 제품 및 서비스**")
+                    st.markdown(_dp["products_html"], unsafe_allow_html=True)
+                if _dp.get("orders_html"):
+                    st.markdown("**수주현황**")
+                    st.markdown(_dp["orders_html"], unsafe_allow_html=True)
+                if _dp.get("sales_html"):
+                    st.markdown("**매출현황**")
+                    st.markdown(_dp["sales_html"], unsafe_allow_html=True)
+                st.divider()
+
         for t in tickers_to_run:
             with st.spinner(f"{t} 분석 중..."):
                 res = get_buy_timing(t)
