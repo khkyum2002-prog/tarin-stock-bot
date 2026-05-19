@@ -862,6 +862,33 @@ def get_kr_fg_auto():
 # ─────────────────────────────────────────────────────────────────────────────
 KR_STOCKS = {k: v for k, v in TICKER_NAMES.items() if k.endswith(".KS") or k.endswith(".KQ")}
 
+# 주요 한국 ETF (KRX 코드 → 이름)  yfinance ticker = code + ".KS"
+KR_ETF_CODES = {
+    "069500":"KODEX 200",           "102110":"TIGER 200",
+    "122630":"KODEX 레버리지",       "114800":"KODEX 인버스",
+    "229200":"KODEX 코스닥150",      "233740":"KODEX 코스닥150레버리지",
+    "251340":"KODEX 코스닥150인버스",
+    "379800":"KODEX 미국S&P500",    "360750":"TIGER 미국S&P500",
+    "133690":"TIGER 미국나스닥100",  "292190":"KODEX 미국나스닥100",
+    "367380":"KBSTAR 미국나스닥100", "411540":"TIGER 미국나스닥100레버리지",
+    "261240":"KODEX 미국채울트라30년","308620":"TIGER 미국채30년",
+    "143850":"KODEX 국고채3년",      "148070":"KODEX 국고채10년",
+    "091160":"KODEX 반도체",         "139220":"KODEX IT",
+    "091170":"KODEX 은행",           "102960":"KODEX 미디어엔터",
+    "117700":"KODEX 건설",           "117480":"KODEX 자동차",
+    "357870":"KODEX 2차전지산업",    "381180":"KODEX K-방산",
+    "394400":"KODEX 원자력",         "305720":"KODEX 2차전지핵심소재",
+    "381170":"TIGER K방산우주",      "364980":"TIGER 글로벌반도체SOX",
+    "337150":"TIGER 미국테크TOP10",  "325010":"TIGER 원자력테마",
+    "423160":"KODEX 방산항공우주",   "437080":"KODEX 미국방산항공우주",
+    "441680":"TIGER 한국형글로벌방산","462970":"KODEX AI반도체핵심장비",
+    "449450":"TIGER 글로벌AI",       "266360":"KODEX 골드선물",
+    "261220":"KODEX WTI원유선물",    "411060":"ACE KRX금현물",
+    "182480":"TIGER 부동산인프라고배당","195980":"KODEX 베트남VN30",
+    "278530":"TIGER 차이나전기차",   "102780":"KODEX 배당성장",
+    "152100":"KODEX 선진국MSCI",     "195930":"TIGER 해외리츠부동산",
+}
+
 def get_kr_stock_rs(top_n=15):
     try:
         tks = list(KR_STOCKS.keys())
@@ -1001,6 +1028,76 @@ def calc_kr_etf_rs_excel(df_data, top_n=15):
         all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
         strong = [r for r in all_results if r["norm_rs"] >= 70]
         return {"all": all_results, "strong": strong[:top_n] if strong else all_results[:top_n]}
+    except Exception as e:
+        return {"error": str(e)}
+
+@st.cache_data(ttl=timedelta(hours=4))
+def get_kr_stock_rs_auto(top_n=15):
+    """yfinance 배치 다운로드 + Mansfield log-ratio RS — Excel과 동일 로직, 자동 실행"""
+    import datetime as _dt
+    end   = _dt.date.today()
+    start = end - _dt.timedelta(days=420)
+    tks   = list(KR_STOCKS.keys())
+    all_prices = {}
+    try:
+        for i in range(0, len(tks), 40):
+            batch = tks[i:i+40]
+            raw = yf.download(batch + ["^KS11"], start=start, end=end,
+                              auto_adjust=True, progress=False)
+            if raw.empty:
+                continue
+            data = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+            if "^KS11" in data.columns:
+                all_prices["코스피"] = data["^KS11"]
+            for t in batch:
+                if t in data.columns:
+                    all_prices[KR_STOCKS.get(t, t)] = data[t]
+            time.sleep(0.3)
+        if "코스피" not in all_prices or len(all_prices) < 3:
+            return {"error": "데이터 수집 실패 (yfinance)"}
+        df_close = pd.DataFrame(all_prices)
+        df_close.index.name = "Date"
+        df_close = df_close.reset_index()
+        result = calc_kr_stock_rs_excel(df_close, top_n=top_n)
+        if "error" not in result:
+            result["source"] = f"📡 yfinance 자동 ({len(all_prices)-1}종목)"
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+@st.cache_data(ttl=timedelta(hours=4))
+def get_kr_etf_rs_auto(top_n=15):
+    """yfinance 배치 다운로드로 KR_ETF_CODES RS 계산 — Excel 없이 자동 실행"""
+    import datetime as _dt
+    end   = _dt.date.today()
+    start = end - _dt.timedelta(days=420)
+    codes = list(KR_ETF_CODES.keys())
+    tickers_yf = [c + ".KS" for c in codes]
+    all_prices = {}
+    try:
+        for i in range(0, len(tickers_yf), 40):
+            batch = tickers_yf[i:i+40]
+            raw = yf.download(batch + ["^KS11"], start=start, end=end,
+                              auto_adjust=True, progress=False)
+            if raw.empty:
+                continue
+            data = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+            if "^KS11" in data.columns:
+                all_prices["코스피"] = data["^KS11"]
+            for yf_t in batch:
+                code = yf_t.replace(".KS", "")
+                if yf_t in data.columns:
+                    all_prices[KR_ETF_CODES.get(code, yf_t)] = data[yf_t]
+            time.sleep(0.3)
+        if "코스피" not in all_prices or len(all_prices) < 5:
+            return {"error": "ETF 데이터 수집 실패"}
+        df_etf = pd.DataFrame(all_prices)
+        df_etf.index.name = "Date"
+        df_etf = df_etf.reset_index()
+        result = calc_kr_etf_rs_excel(df_etf, top_n=top_n)
+        if "error" not in result:
+            result["source"] = f"📡 yfinance 자동 ({len(all_prices)-1}개 ETF)"
+        return result
     except Exception as e:
         return {"error": str(e)}
 
@@ -2165,11 +2262,11 @@ with tab2:
             else:
                 st.error(_tmp_rs["error"])
         else:
-            with st.spinner("한국 개별종목 RS 계산 중 (40종목씩 배치)..."):
-                _tmp_rs = get_kr_stock_rs(top_n=15)
+            with st.spinner(f"한국 개별종목 RS 자동 계산 중 ({len(KR_STOCKS)}종목)..."):
+                _tmp_rs = get_kr_stock_rs_auto(top_n=15)
             if "error" not in _tmp_rs:
                 st.session_state["c_kr_rs"] = _tmp_rs
-                st.session_state["c_kr_rs_src"] = "📡 Yahoo Finance"
+                st.session_state["c_kr_rs_src"] = _tmp_rs.get("source", "📡 yfinance 자동")
             else:
                 st.error(_tmp_rs["error"])
     if "c_kr_rs" in st.session_state:
@@ -2198,28 +2295,37 @@ with tab2:
 
     st.divider()
 
-    # ── 한국 ETF RS (Excel 정밀) ──
-    st.markdown('<p class="zone-header">📊 한국 ETF RS 〔Excel〕</p>', unsafe_allow_html=True)
+    # ── 한국 ETF RS ──
+    st.markdown('<p class="zone-header">📊 한국 ETF RS</p>', unsafe_allow_html=True)
     etf_rs_xl_file = st.file_uploader(
-        "etf상대강도데이터.xlsx 업로드 (데이터 시트 포함)", type=["xlsx"], key="etf_rs_xl_file",
-        help="데이터 시트: DATE + 코스피 + ETF 종가 컬럼 — linear Mansfield RS 60/120/250d"
+        "etf상대강도데이터.xlsx 업로드 (선택 — 없으면 자동 수집)", type=["xlsx"], key="etf_rs_xl_file",
+        help="업로드 시 로컬 Excel 데이터 우선 사용 / 없으면 yfinance로 자동 계산"
     )
     if etf_rs_xl_file:
-        try:
-            etf_rs_xl_file.seek(0)
-            _etf_xl_sheets = pd.ExcelFile(etf_rs_xl_file, engine="openpyxl").sheet_names
-            _etf_sn = next((s for s in _etf_xl_sheets if '데이터' in s), _etf_xl_sheets[0])
-            etf_rs_xl_file.seek(0)
-            df_etf_rs = pd.read_excel(etf_rs_xl_file, sheet_name=_etf_sn, engine="openpyxl")
-            with st.spinner(f"ETF RS 계산 중 ({len(df_etf_rs.columns)-2}개 ETF)..."):
-                _tmp_etf = calc_kr_etf_rs_excel(df_etf_rs, top_n=15)
+        etf_rs_xl_file.seek(0); st.session_state["c_etf_xl_bytes"] = etf_rs_xl_file.read()
+    if st.button("▶ ETF RS 스크리닝", key="kr_etf_rs_run", use_container_width=True):
+        if "c_etf_xl_bytes" in st.session_state:
+            try:
+                _etf_xl = pd.ExcelFile(io.BytesIO(st.session_state["c_etf_xl_bytes"]), engine="openpyxl")
+                _etf_sn = next((s for s in _etf_xl.sheet_names if '데이터' in s), _etf_xl.sheet_names[0])
+                df_etf_rs = pd.read_excel(io.BytesIO(st.session_state["c_etf_xl_bytes"]), sheet_name=_etf_sn, engine="openpyxl")
+                with st.spinner(f"ETF RS 계산 중 ({len(df_etf_rs.columns)-2}개 ETF)..."):
+                    _tmp_etf = calc_kr_etf_rs_excel(df_etf_rs, top_n=15)
+                if "error" not in _tmp_etf:
+                    st.session_state["c_etf_rs"] = _tmp_etf
+                    st.session_state["c_etf_rs_meta"] = f"📂 시트: {_etf_sn} | {len(df_etf_rs)}행 | {len(_tmp_etf.get('all',[]))}개 ETF | RS≥70: {len([r for r in _tmp_etf.get('all',[]) if r['norm_rs']>=70])}개"
+                else:
+                    st.error(_tmp_etf["error"])
+            except Exception as e:
+                st.error(f"ETF RS 파일 읽기 오류: {e}")
+        else:
+            with st.spinner(f"ETF RS 자동 계산 중 ({len(KR_ETF_CODES)}개 ETF)..."):
+                _tmp_etf = get_kr_etf_rs_auto(top_n=15)
             if "error" not in _tmp_etf:
                 st.session_state["c_etf_rs"] = _tmp_etf
-                st.session_state["c_etf_rs_meta"] = f"📂 시트: {_etf_sn} | {len(df_etf_rs)}행 | 전체 {len(_tmp_etf.get('all',[]))}개 ETF | RS≥70: {len([r for r in _tmp_etf.get('all',[]) if r['norm_rs']>=70])}개"
+                st.session_state["c_etf_rs_meta"] = _tmp_etf.get("source", "📡 yfinance 자동") + f" | {len(_tmp_etf.get('all',[]))}개 | RS≥70: {len([r for r in _tmp_etf.get('all',[]) if r['norm_rs']>=70])}개"
             else:
                 st.error(_tmp_etf["error"])
-        except Exception as e:
-            st.error(f"ETF RS 파일 읽기 오류: {e}")
     if "c_etf_rs" in st.session_state:
         etf_rs_xl = st.session_state["c_etf_rs"]
         _is_etf_cached = not etf_rs_xl_file
