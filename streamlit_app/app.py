@@ -1085,131 +1085,140 @@ def get_kr_etf_rs_auto(top_n=15):
 def get_composite_score(top_n=30):
     """종합 점수: RS(35%) + 수급(35%) + 거래대금강도(30%) → 상위 종목 선별"""
     import datetime as _dt
-    try:
-        from pykrx import stock as pstock
-        _has_pykrx = True
-    except ImportError:
-        _has_pykrx = False
+    import concurrent.futures
+    from bs4 import BeautifulSoup as _BS
 
     today = _dt.date.today()
-    end = today
+    end   = today
     start = end - _dt.timedelta(days=280)
-    d2 = today.strftime("%Y%m%d")
-    d1 = (today - _dt.timedelta(days=12)).strftime("%Y%m%d")  # ~5 영업일
-
-    tks = list(KR_STOCKS.keys())
-    all_close = {}; all_turnover = {}
+    tks   = list(KR_STOCKS.keys())
 
     # ── 1. yfinance 배치 (가격 + 거래대금) ──
-    for i in range(0, len(tks), 40):
-        batch = tks[i:i+40]
+    all_close = {}; all_turnover = {}
+    for i in range(0, len(tks), 50):
+        batch = tks[i:i+50]
         try:
             raw = yf.download(batch + ["^KS11"], start=start, end=end,
-                              auto_adjust=True, progress=False, group_by="ticker")
+                              auto_adjust=True, progress=False)
             if raw.empty: continue
-            # MultiIndex: (ticker, field) or (field, ticker)
             if isinstance(raw.columns, pd.MultiIndex):
-                top = raw.columns.get_level_values(0).unique()
-                if "Close" in top:
+                lv0 = raw.columns.get_level_values(0).unique().tolist()
+                if "Close" in lv0:
                     close_df = raw["Close"]; vol_df = raw["Volume"]
                 else:
-                    # group_by="ticker" → (ticker, field)
-                    close_df = pd.DataFrame({t: raw[t]["Close"] for t in batch + ["^KS11"] if t in raw.columns.get_level_values(0)})
-                    vol_df   = pd.DataFrame({t: raw[t]["Volume"] for t in batch + ["^KS11"] if t in raw.columns.get_level_values(0)})
+                    close_df = pd.DataFrame({t: raw[t]["Close"] for t in batch + ["^KS11"] if t in lv0})
+                    vol_df   = pd.DataFrame({t: raw[t]["Volume"] for t in batch + ["^KS11"] if t in lv0})
             else:
                 close_df = raw; vol_df = raw
-
             if "^KS11" in close_df.columns:
-                all_close["코스피"] = close_df["^KS11"]
+                all_close["^KS11"] = close_df["^KS11"]
             for t in batch:
                 if t in close_df.columns:
-                    nm = KR_STOCKS.get(t, t)
-                    all_close[nm] = close_df[t]
+                    all_close[t] = close_df[t]
                     if t in vol_df.columns:
-                        all_turnover[nm] = vol_df[t] * close_df[t]  # 거래대금 = 거래량 × 종가
+                        all_turnover[t] = vol_df[t] * close_df[t]
         except Exception:
             pass
         time.sleep(0.3)
 
-    if "코스피" not in all_close or len(all_close) < 5:
+    if "^KS11" not in all_close or len(all_close) < 5:
         return {"error": "가격 데이터 수집 실패 (yfinance)"}
 
-    df_close = pd.DataFrame(all_close)
-    df_to    = pd.DataFrame(all_turnover)
-    kospi    = df_close["코스피"].where(lambda x: x > 0, np.nan)
+    kospi = all_close["^KS11"].where(lambda x: x > 0, np.nan)
 
-    # ── 2. RS 계산 (0-100 정규화) ──
+    # ── 2. RS 계산 (Mansfield, 0-100 정규화) ──
     rs_scores = {}
-    for col in df_close.columns:
-        if col == "코스피": continue
-        s = df_close[col].where(lambda x: x > 0, np.nan)
+    for t in tks:
+        if t not in all_close: continue
+        s   = all_close[t].where(lambda x: x > 0, np.nan)
         idx = s.dropna().index.intersection(kospi.dropna().index)
         if len(idx) < 57: continue
         rel = s.loc[idx] / kospi.loc[idx]
         ma  = rel.rolling(52, min_periods=52).mean()
         rs  = ((rel / ma) - 1) * 100
-        rv  = rs.dropna().iloc[-1] if not rs.dropna().empty else np.nan
-        if not np.isnan(float(rv)):
-            rs_scores[col] = round(100 / (1 + np.exp(-float(rv) / 12)), 1)
+        rv  = rs.dropna()
+        if rv.empty: continue
+        rs_scores[t] = round(100 / (1 + np.exp(-float(rv.iloc[-1]) / 12)), 1)
 
     # ── 3. 거래대금 강도 (최근 5일 vs 52일 평균, 백분위 0-100) ──
     vol_raw = {}
-    for col in df_to.columns:
-        s = df_to[col].replace(0, np.nan).dropna()
+    for t in tks:
+        if t not in all_turnover: continue
+        s = all_turnover[t].replace(0, np.nan).dropna()
         if len(s) < 57: continue
-        rec = float(s.tail(5).mean())
-        base = float(s.rolling(52, min_periods=52).mean().dropna().iloc[-1])
-        if base > 0: vol_raw[col] = rec / base
+        m5  = float(s.tail(5).mean())
+        m52 = float(s.rolling(52, min_periods=52).mean().dropna().iloc[-1])
+        if m52 > 0: vol_raw[t] = m5 / m52
     vol_scores = {}
     if vol_raw:
-        sr = pd.Series(vol_raw)
-        vol_scores = (sr.rank(pct=True) * 100).round(1).to_dict()
+        vol_scores = (pd.Series(vol_raw).rank(pct=True) * 100).round(1).to_dict()
 
-    # ── 4. 수급 (pykrx 기관+외국인 5일 순매수, 백분위 0-100) ──
-    supply_scores = {}
-    if _has_pykrx:
+    # ── 4. 수급 — 네이버 파이낸스 기관+외국인 20일 순매수 (병렬 스크래핑) ──
+    _hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://finance.naver.com/",
+    }
+
+    def _fetch_supply(ticker):
+        code = ticker.replace(".KS", "").replace(".KQ", "")
+        total = 0.0
         try:
-            supply_raw = {}
-            for market in ["KOSPI", "KOSDAQ"]:
-                for investor in ["기관합계", "외국인합계"]:
-                    try:
-                        df_sp = pstock.get_market_net_purchases_of_equities_by_ticker(d1, d2, market, investor)
-                        if df_sp.empty: continue
-                        money_col = next((c for c in df_sp.columns if "순매수" in c and "금" in c), df_sp.columns[-1])
-                        suffix = ".KS" if market == "KOSPI" else ".KQ"
-                        for ticker, row in df_sp.iterrows():
-                            nm = KR_STOCKS.get(str(ticker) + suffix)
-                            if nm:
-                                supply_raw[nm] = supply_raw.get(nm, 0) + float(row[money_col])
-                    except Exception:
-                        pass
-            if supply_raw:
-                sr2 = pd.Series(supply_raw)
-                supply_scores = (sr2.rank(pct=True) * 100).round(1).to_dict()
+            for pg in range(1, 3):   # 2페이지 = ~40영업일치
+                r = requests.get(
+                    f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
+                    headers=_hdrs, timeout=10)
+                if r.status_code != 200: break
+                soup = _BS(r.content, "html.parser", from_encoding="euc-kr")
+                tables = soup.find_all("table")
+                if len(tables) < 4: break
+                rows = tables[3].find_all("tr")
+                count = 0
+                for row in rows:
+                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
+                        try:
+                            close_p = int(cells[1].replace(",", ""))
+                            inst_q  = int(cells[5].replace(",", "").replace("+", "") or "0")
+                            frgn_q  = int(cells[6].replace(",", "").replace("+", "") or "0")
+                            if close_p > 0:
+                                total += (inst_q + frgn_q) * close_p
+                                count += 1
+                                if count >= 20: break   # 최근 20영업일
+                        except Exception:
+                            pass
         except Exception:
             pass
+        return ticker, total
+
+    supply_raw = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for tk, val in pool.map(_fetch_supply, tks):
+            supply_raw[tk] = val
+
+    supply_scores = {}
+    if any(v != 0 for v in supply_raw.values()):
+        supply_scores = (pd.Series(supply_raw).rank(pct=True) * 100).round(1).to_dict()
 
     # ── 5. 종합 점수 합산 ──
-    all_names = set(rs_scores) | set(vol_scores) | set(supply_scores)
+    all_tks = set(rs_scores) | set(vol_scores) | set(supply_scores)
     results = []
-    for nm in all_names:
-        rs  = rs_scores.get(nm)
-        vol = vol_scores.get(nm)
-        sup = supply_scores.get(nm)
+    for t in all_tks:
+        nm  = KR_STOCKS.get(t, t)
+        rs  = rs_scores.get(t)
+        vol = vol_scores.get(t)
+        sup = supply_scores.get(t)
         parts, wts = [], []
         if rs  is not None: parts.append(rs);  wts.append(0.35)
         if sup is not None: parts.append(sup); wts.append(0.35)
         if vol is not None: parts.append(vol); wts.append(0.30)
         if not parts: continue
-        tw = sum(wts)
-        score = sum(v * w for v, w in zip(parts, wts)) / tw
-        ticker = next((t for t, n in KR_STOCKS.items() if n == nm), "")
-        results.append({"ticker": ticker, "name": nm, "score": round(score, 1),
+        tw    = sum(wts)
+        score = round(sum(v * w for v, w in zip(parts, wts)) / tw, 1)
+        results.append({"ticker": t, "name": nm, "score": score,
                          "rs": rs, "supply": sup, "volume": vol})
 
     results.sort(key=lambda x: x["score"], reverse=True)
-    has_supply = bool(supply_scores)
-    return {"results": results[:top_n], "total": len(results), "has_supply": has_supply}
+    return {"results": results[:top_n], "total": len(results), "has_supply": bool(supply_scores)}
 
 def calc_weekly_trend_excel(df_wk):
     """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
