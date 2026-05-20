@@ -165,7 +165,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab1, tab2, tab3 = st.tabs(["🌎 미국 지표", "🇰🇷 국내 지표", "🔍 종목 분석"])
+tab1, tab2, tab3, tab4 = st.tabs(["🌎 미국 지표", "🇰🇷 국내 지표", "🔍 종목 분석", "🎯 종목 선정"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
@@ -1057,6 +1057,136 @@ def get_kr_etf_rs_auto(top_n=15):
         return result
     except Exception as e:
         return {"error": str(e)}
+
+@st.cache_data(ttl=timedelta(hours=2))
+def get_composite_score(top_n=30):
+    """종합 점수: RS(35%) + 수급(35%) + 거래대금강도(30%) → 상위 종목 선별"""
+    import datetime as _dt
+    try:
+        from pykrx import stock as pstock
+        _has_pykrx = True
+    except ImportError:
+        _has_pykrx = False
+
+    today = _dt.date.today()
+    end = today
+    start = end - _dt.timedelta(days=280)
+    d2 = today.strftime("%Y%m%d")
+    d1 = (today - _dt.timedelta(days=12)).strftime("%Y%m%d")  # ~5 영업일
+
+    tks = list(KR_STOCKS.keys())
+    all_close = {}; all_turnover = {}
+
+    # ── 1. yfinance 배치 (가격 + 거래대금) ──
+    for i in range(0, len(tks), 40):
+        batch = tks[i:i+40]
+        try:
+            raw = yf.download(batch + ["^KS11"], start=start, end=end,
+                              auto_adjust=True, progress=False, group_by="ticker")
+            if raw.empty: continue
+            # MultiIndex: (ticker, field) or (field, ticker)
+            if isinstance(raw.columns, pd.MultiIndex):
+                top = raw.columns.get_level_values(0).unique()
+                if "Close" in top:
+                    close_df = raw["Close"]; vol_df = raw["Volume"]
+                else:
+                    # group_by="ticker" → (ticker, field)
+                    close_df = pd.DataFrame({t: raw[t]["Close"] for t in batch + ["^KS11"] if t in raw.columns.get_level_values(0)})
+                    vol_df   = pd.DataFrame({t: raw[t]["Volume"] for t in batch + ["^KS11"] if t in raw.columns.get_level_values(0)})
+            else:
+                close_df = raw; vol_df = raw
+
+            if "^KS11" in close_df.columns:
+                all_close["코스피"] = close_df["^KS11"]
+            for t in batch:
+                if t in close_df.columns:
+                    nm = KR_STOCKS.get(t, t)
+                    all_close[nm] = close_df[t]
+                    if t in vol_df.columns:
+                        all_turnover[nm] = vol_df[t] * close_df[t]  # 거래대금 = 거래량 × 종가
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+    if "코스피" not in all_close or len(all_close) < 5:
+        return {"error": "가격 데이터 수집 실패 (yfinance)"}
+
+    df_close = pd.DataFrame(all_close)
+    df_to    = pd.DataFrame(all_turnover)
+    kospi    = df_close["코스피"].where(lambda x: x > 0, np.nan)
+
+    # ── 2. RS 계산 (0-100 정규화) ──
+    rs_scores = {}
+    for col in df_close.columns:
+        if col == "코스피": continue
+        s = df_close[col].where(lambda x: x > 0, np.nan)
+        idx = s.dropna().index.intersection(kospi.dropna().index)
+        if len(idx) < 57: continue
+        rel = s.loc[idx] / kospi.loc[idx]
+        ma  = rel.rolling(52, min_periods=52).mean()
+        rs  = ((rel / ma) - 1) * 100
+        rv  = rs.dropna().iloc[-1] if not rs.dropna().empty else np.nan
+        if not np.isnan(float(rv)):
+            rs_scores[col] = round(100 / (1 + np.exp(-float(rv) / 12)), 1)
+
+    # ── 3. 거래대금 강도 (최근 5일 vs 52일 평균, 백분위 0-100) ──
+    vol_raw = {}
+    for col in df_to.columns:
+        s = df_to[col].replace(0, np.nan).dropna()
+        if len(s) < 57: continue
+        rec = float(s.tail(5).mean())
+        base = float(s.rolling(52, min_periods=52).mean().dropna().iloc[-1])
+        if base > 0: vol_raw[col] = rec / base
+    vol_scores = {}
+    if vol_raw:
+        sr = pd.Series(vol_raw)
+        vol_scores = (sr.rank(pct=True) * 100).round(1).to_dict()
+
+    # ── 4. 수급 (pykrx 기관+외국인 5일 순매수, 백분위 0-100) ──
+    supply_scores = {}
+    if _has_pykrx:
+        try:
+            supply_raw = {}
+            for market in ["KOSPI", "KOSDAQ"]:
+                for investor in ["기관합계", "외국인합계"]:
+                    try:
+                        df_sp = pstock.get_market_net_purchases_of_equities_by_ticker(d1, d2, market, investor)
+                        if df_sp.empty: continue
+                        money_col = next((c for c in df_sp.columns if "순매수" in c and "금" in c), df_sp.columns[-1])
+                        suffix = ".KS" if market == "KOSPI" else ".KQ"
+                        for ticker, row in df_sp.iterrows():
+                            nm = KR_STOCKS.get(str(ticker) + suffix)
+                            if nm:
+                                supply_raw[nm] = supply_raw.get(nm, 0) + float(row[money_col])
+                    except Exception:
+                        pass
+            if supply_raw:
+                sr2 = pd.Series(supply_raw)
+                supply_scores = (sr2.rank(pct=True) * 100).round(1).to_dict()
+        except Exception:
+            pass
+
+    # ── 5. 종합 점수 합산 ──
+    all_names = set(rs_scores) | set(vol_scores) | set(supply_scores)
+    results = []
+    for nm in all_names:
+        rs  = rs_scores.get(nm)
+        vol = vol_scores.get(nm)
+        sup = supply_scores.get(nm)
+        parts, wts = [], []
+        if rs  is not None: parts.append(rs);  wts.append(0.35)
+        if sup is not None: parts.append(sup); wts.append(0.35)
+        if vol is not None: parts.append(vol); wts.append(0.30)
+        if not parts: continue
+        tw = sum(wts)
+        score = sum(v * w for v, w in zip(parts, wts)) / tw
+        ticker = next((t for t, n in KR_STOCKS.items() if n == nm), "")
+        results.append({"ticker": ticker, "name": nm, "score": round(score, 1),
+                         "rs": rs, "supply": sup, "volume": vol})
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    has_supply = bool(supply_scores)
+    return {"results": results[:top_n], "total": len(results), "has_supply": has_supply}
 
 def calc_weekly_trend_excel(df_wk):
     """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
@@ -3033,3 +3163,77 @@ with tab3:
             fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_si.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             st.plotly_chart(fig_si, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 탭 4: 종목 선정
+# ─────────────────────────────────────────────────────────────────────────────
+with tab4:
+    st.markdown('<p class="zone-header">🎯 종목 선정 (종합 점수)</p>', unsafe_allow_html=True)
+    st.caption("RS(35%) + 수급(35%) + 거래대금강도(30%) 종합 점수로 자동 선별 — 약 1~2분 소요")
+
+    _c_btn, _c_n = st.columns([4, 1])
+    with _c_n:
+        _top_n = st.number_input("상위 종목 수", min_value=10, max_value=50, value=20, step=5, key="comp_topn")
+    with _c_btn:
+        if st.button("▶ 종합 스크리닝 실행", key="composite_run", use_container_width=True):
+            with st.spinner(f"RS + 수급(pykrx) + 거래대금 데이터 수집 중... ({len(KR_STOCKS)}종목)"):
+                _comp_res = get_composite_score(top_n=int(_top_n))
+            st.session_state["c_composite"] = _comp_res
+
+    if "c_composite" in st.session_state:
+        _comp = st.session_state["c_composite"]
+        if "error" in _comp:
+            st.error(_comp["error"])
+        else:
+            _rows = _comp.get("results", [])
+            _has_sup = _comp.get("has_supply", False)
+            st.caption(f"전체 {_comp.get('total', 0)}종목 스캔 | 상위 {len(_rows)}종목 | "
+                       f"수급 데이터: {'✅ pykrx' if _has_sup else '❌ 미수집 (RS+거래대금만)'}")
+
+            if _rows:
+                _df_comp = pd.DataFrame(_rows)
+                # 컬럼명 매핑
+                _rename = {"name":"종목명","ticker":"티커","score":"종합점수",
+                           "rs":"RS(0~100)","supply":"수급(0~100)","volume":"거래대금강도(0~100)"}
+                _show_cols = ["종목명","티커","종합점수","RS(0~100)","수급(0~100)","거래대금강도(0~100)"]
+                _df_disp = _df_comp.rename(columns=_rename)[_show_cols]
+
+                st.dataframe(
+                    _df_disp,
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        "종합점수":       st.column_config.ProgressColumn("종합점수",       min_value=0, max_value=100, format="%.1f"),
+                        "RS(0~100)":      st.column_config.ProgressColumn("RS",             min_value=0, max_value=100, format="%.0f"),
+                        "수급(0~100)":    st.column_config.ProgressColumn("수급",           min_value=0, max_value=100, format="%.0f"),
+                        "거래대금강도(0~100)": st.column_config.ProgressColumn("거래대금강도", min_value=0, max_value=100, format="%.0f"),
+                    }
+                )
+
+                # ── 스택 바 차트 (각 요소별 기여도) ──
+                with st.expander("📊 종합 점수 차트 (요소별 기여도)"):
+                    _top15 = _rows[:15][::-1]
+                    _cn = [r["name"]   for r in _top15]
+                    _rv = [r["rs"]    or 0 for r in _top15]
+                    _sv = [r["supply"] or 0 for r in _top15]
+                    _vv = [r["volume"] or 0 for r in _top15]
+
+                    _fig4 = go.Figure()
+                    _fig4.add_trace(go.Bar(name="RS(35%)",      x=[v*0.35 for v in _rv], y=_cn, orientation='h',
+                                           marker_color="#2196F3", text=[f"{v:.0f}" for v in _rv], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="수급(35%)",    x=[v*0.35 for v in _sv], y=_cn, orientation='h',
+                                           marker_color="#4CAF50", text=[f"{v:.0f}" for v in _sv], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="거래대금(30%)", x=[v*0.30 for v in _vv], y=_cn, orientation='h',
+                                           marker_color="#FF9800", text=[f"{v:.0f}" for v in _vv], textposition='inside'))
+                    _fig4.update_layout(
+                        barmode="stack",
+                        height=max(380, len(_cn)*30),
+                        margin=dict(l=10, r=50, t=10, b=10),
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e0e0",
+                        legend=dict(orientation="h", y=1.06),
+                        xaxis_title="종합 점수 기여 (합계=종합점수)"
+                    )
+                    st.plotly_chart(_fig4, use_container_width=True)
+
+    st.divider()
+    st.caption("💡 해석 가이드: RS≥70 + 수급≥70 + 거래대금강도≥70 → 기관/외국인이 사들이며 시장 대비 강세 진행 중인 종목")
