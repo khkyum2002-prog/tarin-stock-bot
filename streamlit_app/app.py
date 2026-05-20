@@ -881,6 +881,77 @@ def get_kr_fg_auto():
 # ─────────────────────────────────────────────────────────────────────────────
 KR_STOCKS = {k: v for k, v in TICKER_NAMES.items() if k.endswith(".KS") or k.endswith(".KQ")}
 
+# 종목 → 섹터 매핑 (섹터 ETF RS로 강한 섹터 필터링에 사용)
+STOCK_SECTOR = {
+    # 반도체 (KODEX 반도체 091160.KS)
+    "005930.KS":"반도체","000660.KS":"반도체","009150.KS":"반도체","011070.KS":"반도체",
+    "042700.KQ":"반도체","240810.KQ":"반도체","039030.KQ":"반도체","089030.KQ":"반도체",
+    "095340.KQ":"반도체","319660.KQ":"반도체","085660.KQ":"반도체","064760.KQ":"반도체",
+    "084370.KQ":"반도체","036710.KQ":"반도체","183300.KQ":"반도체","008060.KQ":"반도체",
+    "140860.KQ":"반도체","102710.KQ":"반도체","195870.KQ":"반도체","067310.KQ":"반도체",
+    "007810.KS":"반도체","357780.KQ":"반도체","218410.KQ":"반도체","211050.KQ":"반도체",
+    "076410.KQ":"반도체","058470.KQ":"반도체",
+    # 방산 (TIGER 우주방산 463250.KS / PLUS K방산 449450.KS)
+    "012450.KS":"방산","047810.KS":"방산","079550.KS":"방산",
+    "082740.KQ":"방산","077970.KQ":"방산","429530.KQ":"방산",
+    # 조선/중공업 (SOL 조선TOP3 466920.KS / TIGER 200중공업 139230.KS)
+    "009540.KS":"조선","329180.KS":"조선","010140.KS":"조선","042660.KS":"조선",
+    "267260.KS":"조선","298040.KS":"조선","010120.KS":"조선","028050.KS":"조선",
+    "267250.KS":"조선",
+    # 2차전지 (TIGER 2차전지테마 305540.KS)
+    "373220.KS":"2차전지","006400.KS":"2차전지","051910.KS":"2차전지",
+    "003670.KS":"2차전지","009830.KS":"2차전지","011790.KS":"2차전지",
+    "086520.KQ":"2차전지","247540.KQ":"2차전지","066970.KQ":"2차전지","278280.KQ":"2차전지",
+    # 바이오 (KODEX 바이오 244580.KS / TIGER 바이오TOP10 364970.KS)
+    "207940.KS":"바이오","068270.KS":"바이오","128940.KS":"바이오",
+    "326030.KS":"바이오","145020.KS":"바이오",
+    "028300.KQ":"바이오","141080.KQ":"바이오","009420.KQ":"바이오",
+    "298380.KQ":"바이오","039200.KQ":"바이오","214450.KQ":"바이오",
+    "226950.KQ":"바이오","115180.KQ":"바이오","195940.KQ":"바이오",
+    "067630.KQ":"바이오","950200.KQ":"바이오","108490.KQ":"바이오",
+    "000100.KS":"바이오",
+    # K뷰티/소비재 (HANARO K뷰티 479850.KS)
+    "090430.KS":"K뷰티","241710.KQ":"K뷰티","476000.KQ":"K뷰티",
+    "278470.KQ":"K뷰티","214150.KQ":"K뷰티","161890.KS":"K뷰티","004370.KS":"K뷰티",
+    "097950.KS":"K뷰티",
+    # 로봇 (KODEX K-로봇 445290.KS)
+    "277810.KS":"로봇","454910.KS":"로봇","090360.KS":"로봇","108490.KQ":"로봇",
+    # 자동차 (KODEX 자동차 091180.KS)
+    "005380.KS":"자동차","000270.KS":"자동차","012330.KS":"자동차",
+    "066570.KS":"자동차","011210.KS":"자동차","086280.KS":"자동차",
+    # 원전/에너지 (ACE 원자력테마 433500.KS)
+    "034020.KS":"원전","015760.KS":"원전","036460.KS":"원전",
+    # 게임/엔터 (KODEX 게임산업 300950.KS)
+    "036570.KS":"게임/엔터","259960.KS":"게임/엔터","251270.KS":"게임/엔터",
+    "352820.KS":"게임/엔터","263750.KQ":"게임/엔터","293490.KQ":"게임/엔터",
+    "035900.KQ":"게임/엔터","041510.KQ":"게임/엔터","122870.KQ":"게임/엔터",
+    # 금융 (KODEX 은행 091170.KS)
+    "105560.KS":"금융","055550.KS":"금융","086790.KS":"금융",
+    "316140.KS":"금융","138040.KS":"금융","032830.KS":"금융","323410.KS":"금융",
+    # 통신 (기타)
+    "017670.KS":"통신","030200.KS":"통신","032640.KS":"통신",
+    # IT/플랫폼
+    "035420.KS":"IT플랫폼","035720.KS":"IT플랫폼","012510.KQ":"IT플랫폼",
+    "030190.KQ":"IT플랫폼",
+}
+
+# 섹터 → 대표 ETF ticker (RS 계산용)
+SECTOR_ETF_MAP = {
+    "반도체":  "091160.KS",   # KODEX 반도체
+    "방산":    "463250.KS",   # TIGER 우주방산
+    "조선":    "466920.KS",   # SOL 조선TOP3
+    "2차전지": "305540.KS",   # TIGER 2차전지테마
+    "바이오":  "244580.KS",   # KODEX 바이오
+    "K뷰티":   "479850.KS",   # HANARO K뷰티
+    "로봇":    "445290.KS",   # KODEX K-로봇
+    "자동차":  "091180.KS",   # KODEX 자동차
+    "원전":    "433500.KS",   # ACE 원자력테마
+    "게임/엔터":"300950.KS",   # KODEX 게임산업
+    "금융":    "091170.KS",   # KODEX 은행
+    "통신":    "017670.KS",   # SK텔레콤 (대표 종목으로 대체)
+    "IT플랫폼":"035420.KS",   # NAVER (대표 종목으로 대체)
+}
+
 # 주요 한국 ETF (KRX 코드 → 이름)  yfinance ticker = code + ".KS"
 KR_ETF_CODES = {
     "069500":"KODEX 200",           "102110":"TIGER 200",
@@ -1091,7 +1162,37 @@ def get_composite_score(top_n=30):
     today = _dt.date.today()
     end   = today
     start = end - _dt.timedelta(days=280)
-    tks   = list(KR_STOCKS.keys())
+
+    # ── 0. 섹터 ETF RS로 강한 섹터 선별 ──
+    sector_etf_tks = list(set(SECTOR_ETF_MAP.values()))
+    strong_sectors = set()
+    try:
+        _etf_raw = yf.download(sector_etf_tks + ["^KS11"], start=start, end=end,
+                               auto_adjust=True, progress=False)
+        if not _etf_raw.empty:
+            _ec = _etf_raw["Close"] if "Close" in _etf_raw.columns else _etf_raw
+            _ek = _ec["^KS11"].dropna()
+            for sector, etf_tk in SECTOR_ETF_MAP.items():
+                if etf_tk not in _ec.columns: continue
+                _es = _ec[etf_tk].dropna()
+                _idx = _es.index.intersection(_ek.index)
+                if len(_idx) < 57: continue
+                _rel = _es.loc[_idx] / _ek.loc[_idx]
+                _ma  = _rel.rolling(52, min_periods=52).mean()
+                _rv  = ((_rel / _ma) - 1) * 100
+                _rv  = _rv.dropna()
+                if _rv.empty: continue
+                _rs_val = float(_rv.iloc[-1])
+                if _rs_val > 0:   # KOSPI 대비 초과수익 = 강한 섹터
+                    strong_sectors.add(sector)
+    except Exception:
+        pass
+
+    # 강한 섹터 종목만 스크리닝 (매핑 없는 종목은 제외)
+    if strong_sectors:
+        tks = [t for t in KR_STOCKS if STOCK_SECTOR.get(t, "") in strong_sectors]
+    else:
+        tks = list(KR_STOCKS.keys())   # ETF 데이터 실패 시 전체
 
     # ── 1. yfinance 배치 (가격 + 거래대금) ──
     all_close = {}; all_turnover = {}
@@ -1255,13 +1356,16 @@ def get_composite_score(top_n=30):
         else:
             grade = "─"
 
+        sector = STOCK_SECTOR.get(t, "기타")
         results.append({"ticker": t, "name": nm, "score": score, "grade": grade,
+                         "sector": sector,
                          "rs": vals["rs"], "supply": vals["supply"],
                          "volume": vals["volume"], "momentum": vals["momentum"],
                          "high52": vals["high52"]})
 
     results.sort(key=lambda x: x["score"], reverse=True)
-    return {"results": results[:top_n], "total": len(results), "has_supply": bool(supply_scores)}
+    return {"results": results[:top_n], "total": len(results),
+            "has_supply": bool(supply_scores), "strong_sectors": sorted(strong_sectors)}
 
 def calc_weekly_trend_excel(df_wk):
     """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
@@ -3273,23 +3377,26 @@ with tab4:
                 st.info(f"✅ 유망 후보 {len(_good)}종목: " +
                         "  |  ".join(f"**{r['name']}** ({r['score']:.0f}점)" for r in _good))
 
-            st.caption(f"전체 {_comp.get('total',0)}종목 스캔 | 수급 데이터: {'✅ 네이버' if _has_sup else '❌ 미수집'}")
+            _strong_sec = _comp.get("strong_sectors", [])
+            if _strong_sec:
+                st.markdown(f"**📈 강한 섹터:** {'  ·  '.join(_strong_sec)}")
+            st.caption(f"강한 섹터 내 종목만 스크리닝 | 전체 {_comp.get('total',0)}종목 | 수급: {'✅ 네이버' if _has_sup else '❌ 미수집'}")
 
             if _rows:
                 _df_comp = pd.DataFrame(_rows)
                 _df_disp = _df_comp.rename(columns={
-                    "grade":"등급","name":"종목명","ticker":"티커","score":"종합점수",
+                    "grade":"등급","sector":"섹터","name":"종목명","ticker":"티커","score":"종합점수",
                     "rs":"RS","supply":"수급","volume":"거래대금","momentum":"모멘텀","high52":"52주신고가"
-                })[["등급","종목명","티커","종합점수","RS","수급","모멘텀","거래대금","52주신고가"]]
+                })[["등급","섹터","종목명","티커","종합점수","RS","수급","모멘텀","거래대금","52주신고가"]]
 
                 st.dataframe(
                     _df_disp, use_container_width=True, hide_index=True,
                     column_config={
-                        "종합점수": st.column_config.ProgressColumn("종합점수", min_value=0, max_value=100, format="%.1f"),
-                        "RS":       st.column_config.ProgressColumn("RS",       min_value=0, max_value=100, format="%.0f"),
-                        "수급":     st.column_config.ProgressColumn("수급",     min_value=0, max_value=100, format="%.0f"),
-                        "모멘텀":   st.column_config.ProgressColumn("모멘텀",   min_value=0, max_value=100, format="%.0f"),
-                        "거래대금": st.column_config.ProgressColumn("거래대금", min_value=0, max_value=100, format="%.0f"),
+                        "종합점수":   st.column_config.ProgressColumn("종합점수",   min_value=0, max_value=100, format="%.1f"),
+                        "RS":         st.column_config.ProgressColumn("RS",         min_value=0, max_value=100, format="%.0f"),
+                        "수급":       st.column_config.ProgressColumn("수급",       min_value=0, max_value=100, format="%.0f"),
+                        "모멘텀":     st.column_config.ProgressColumn("모멘텀",     min_value=0, max_value=100, format="%.0f"),
+                        "거래대금":   st.column_config.ProgressColumn("거래대금",   min_value=0, max_value=100, format="%.0f"),
                         "52주신고가": st.column_config.ProgressColumn("52주신고가", min_value=0, max_value=100, format="%.0f"),
                     }
                 )
