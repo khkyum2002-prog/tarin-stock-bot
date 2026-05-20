@@ -152,6 +152,15 @@ div[data-testid="stToggle"] label { font-size: 0.875rem; }
 ::-webkit-scrollbar-track { background: #0d1117; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* ── 등급 뱃지 ── */
+.badge-star { background:#1f3a2a; color:#3fb950; border:1px solid #3fb950; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:700; margin:2px; display:inline-block; }
+.badge-good { background:#1a2c45; color:#79c0ff; border:1px solid #388bfd; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:600; margin:2px; display:inline-block; }
+.badge-watch { background:#2d2a1e; color:#e3b341; border:1px solid #d29922; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:500; margin:2px; display:inline-block; }
+
+/* ── 섹터 태그 ── */
+.sector-tag { display:inline-block; background:#21262d; border:1px solid #30363d; border-radius:6px; padding:3px 10px; margin:2px; font-size:0.80rem; color:#8b949e; }
+.sector-tag.on { background:#1f3a2a; border-color:#3fb950; color:#3fb950; font-weight:600; }
 </style>""", unsafe_allow_html=True)
 
 _days = ["월","화","수","목","금","토","일"]
@@ -165,7 +174,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab1, tab2, tab3, tab4 = st.tabs(["🌎 미국 지표", "🇰🇷 국내 지표", "🔍 종목 분석", "🎯 종목 선정"])
+tab4, tab2, tab3, tab1 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 지표", "🔍 종목 분석", "🌎 미국 지표"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
@@ -3348,14 +3357,15 @@ with tab3:
 # ─────────────────────────────────────────────────────────────────────────────
 with tab4:
     st.markdown('<p class="zone-header">🎯 종목 선정</p>', unsafe_allow_html=True)
-    st.caption("RS(25%) · 수급(30%) · 모멘텀(20%) · 거래대금(15%) · 52주신고가(10%) — 기존 데이터 전부 활용")
 
-    _c_btn, _c_n = st.columns([4, 1])
+    _c_btn, _c_n = st.columns([5, 1])
     with _c_n:
-        _top_n = st.number_input("상위 종목 수", min_value=10, max_value=50, value=20, step=5, key="comp_topn")
+        _top_n = st.number_input("종목 수", min_value=10, max_value=50, value=20, step=5,
+                                  key="comp_topn", label_visibility="collapsed")
     with _c_btn:
-        if st.button("▶ 종합 스크리닝 실행", key="composite_run", use_container_width=True):
-            with st.spinner(f"데이터 수집 중... ({len(KR_STOCKS)}종목 · 약 1~2분)"):
+        if st.button("▶ 스크리닝 실행", key="composite_run",
+                     use_container_width=True, type="primary"):
+            with st.spinner("섹터 분석 → 수급 수집 → 종합 점수 계산 중... (1~2분)"):
                 _comp_res = get_composite_score(top_n=int(_top_n))
             st.session_state["c_composite"] = _comp_res
 
@@ -3364,67 +3374,71 @@ with tab4:
         if "error" in _comp:
             st.error(_comp["error"])
         else:
-            _rows = _comp.get("results", [])
-            _has_sup = _comp.get("has_supply", False)
+            _rows     = _comp.get("results", [])
+            _has_sup  = _comp.get("has_supply", False)
+            _str_secs = _comp.get("strong_sectors", [])
 
-            # ── 강력 후보 강조 ──
+            # ── 섹터 현황 태그 ──
+            _all_secs = ["반도체","방산","조선","2차전지","바이오","K뷰티","로봇","자동차","원전","게임/엔터","금융"]
+            _sec_html = " ".join(
+                f'<span class="sector-tag on">✓ {s}</span>' if s in _str_secs
+                else f'<span class="sector-tag">{s}</span>'
+                for s in _all_secs
+            )
+            st.markdown(f'<div style="margin:0.5rem 0 0.3rem">{_sec_html}</div>',
+                        unsafe_allow_html=True)
+            st.caption(f"초록 = KOSPI 대비 강한 섹터 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
+
+            # ── 강력/유망 뱃지 ──
             _star = [r for r in _rows if r.get("grade","").startswith("⭐")]
             _good = [r for r in _rows if r.get("grade","").startswith("✅")]
-            if _star:
-                st.success(f"⭐ 강력 후보 {len(_star)}종목: " +
-                           "  |  ".join(f"**{r['name']}** ({r['score']:.0f}점)" for r in _star))
-            if _good:
-                st.info(f"✅ 유망 후보 {len(_good)}종목: " +
-                        "  |  ".join(f"**{r['name']}** ({r['score']:.0f}점)" for r in _good))
-
-            _strong_sec = _comp.get("strong_sectors", [])
-            if _strong_sec:
-                st.markdown(f"**📈 강한 섹터:** {'  ·  '.join(_strong_sec)}")
-            st.caption(f"강한 섹터 내 종목만 스크리닝 | 전체 {_comp.get('total',0)}종목 | 수급: {'✅ 네이버' if _has_sup else '❌ 미수집'}")
+            if _star or _good:
+                _bh  = "".join(f'<span class="badge-star">⭐ {r["name"]} {r["score"]:.0f}</span>' for r in _star)
+                _bh += "".join(f'<span class="badge-good">✅ {r["name"]} {r["score"]:.0f}</span>' for r in _good)
+                st.markdown(f'<div style="margin:0.6rem 0 0.8rem">{_bh}</div>',
+                            unsafe_allow_html=True)
 
             if _rows:
                 _df_comp = pd.DataFrame(_rows)
                 _df_disp = _df_comp.rename(columns={
-                    "grade":"등급","sector":"섹터","name":"종목명","ticker":"티커","score":"종합점수",
-                    "rs":"RS","supply":"수급","volume":"거래대금","momentum":"모멘텀","high52":"52주신고가"
-                })[["등급","섹터","종목명","티커","종합점수","RS","수급","모멘텀","거래대금","52주신고가"]]
+                    "grade":"등급","sector":"섹터","name":"종목명","score":"종합",
+                    "rs":"RS","supply":"수급","momentum":"모멘텀","volume":"거래대금","high52":"신고가"
+                })[["등급","섹터","종목명","종합","RS","수급","모멘텀","거래대금","신고가"]]
 
                 st.dataframe(
                     _df_disp, use_container_width=True, hide_index=True,
                     column_config={
-                        "종합점수":   st.column_config.ProgressColumn("종합점수",   min_value=0, max_value=100, format="%.1f"),
-                        "RS":         st.column_config.ProgressColumn("RS",         min_value=0, max_value=100, format="%.0f"),
-                        "수급":       st.column_config.ProgressColumn("수급",       min_value=0, max_value=100, format="%.0f"),
-                        "모멘텀":     st.column_config.ProgressColumn("모멘텀",     min_value=0, max_value=100, format="%.0f"),
-                        "거래대금":   st.column_config.ProgressColumn("거래대금",   min_value=0, max_value=100, format="%.0f"),
-                        "52주신고가": st.column_config.ProgressColumn("52주신고가", min_value=0, max_value=100, format="%.0f"),
+                        "종합":    st.column_config.ProgressColumn("종합점수",  min_value=0, max_value=100, format="%.1f"),
+                        "RS":      st.column_config.ProgressColumn("RS",        min_value=0, max_value=100, format="%.0f"),
+                        "수급":    st.column_config.ProgressColumn("수급",      min_value=0, max_value=100, format="%.0f"),
+                        "모멘텀":  st.column_config.ProgressColumn("모멘텀",    min_value=0, max_value=100, format="%.0f"),
+                        "거래대금":st.column_config.ProgressColumn("거래대금",  min_value=0, max_value=100, format="%.0f"),
+                        "신고가":  st.column_config.ProgressColumn("52주신고가",min_value=0, max_value=100, format="%.0f"),
                     }
                 )
 
-                # ── 레이더 차트: 상위 10종목 ──
-                with st.expander("📊 신호별 점수 차트 (상위 15종목)"):
+                with st.expander("📊 신호별 점수 차트"):
                     _top15 = _rows[:15][::-1]
                     _cn  = [r["name"]     for r in _top15]
-                    _rs  = [r["rs"]       or 0 for r in _top15]
                     _sup = [r["supply"]   or 0 for r in _top15]
+                    _rs  = [r["rs"]       or 0 for r in _top15]
                     _mom = [r["momentum"] or 0 for r in _top15]
                     _vol = [r["volume"]   or 0 for r in _top15]
                     _h52 = [r["high52"]   or 0 for r in _top15]
-
                     _fig4 = go.Figure()
-                    _fig4.add_trace(go.Bar(name="RS(25%)",      x=[v*0.25 for v in _rs],  y=_cn, orientation='h', marker_color="#2196F3", text=[f"{v:.0f}" for v in _rs],  textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="수급(30%)",    x=[v*0.30 for v in _sup], y=_cn, orientation='h', marker_color="#4CAF50", text=[f"{v:.0f}" for v in _sup], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="모멘텀(20%)",  x=[v*0.20 for v in _mom], y=_cn, orientation='h', marker_color="#9C27B0", text=[f"{v:.0f}" for v in _mom], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="거래대금(15%)",x=[v*0.15 for v in _vol], y=_cn, orientation='h', marker_color="#FF9800", text=[f"{v:.0f}" for v in _vol], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="신고가(10%)",  x=[v*0.10 for v in _h52], y=_cn, orientation='h', marker_color="#F44336", text=[f"{v:.0f}" for v in _h52], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="수급 30%",    x=[v*0.30 for v in _sup], y=_cn, orientation='h', marker_color="#4CAF50", text=[f"{v:.0f}" for v in _sup], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="RS 25%",      x=[v*0.25 for v in _rs],  y=_cn, orientation='h', marker_color="#2196F3", text=[f"{v:.0f}" for v in _rs],  textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="모멘텀 20%",  x=[v*0.20 for v in _mom], y=_cn, orientation='h', marker_color="#9C27B0", text=[f"{v:.0f}" for v in _mom], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="거래대금 15%",x=[v*0.15 for v in _vol], y=_cn, orientation='h', marker_color="#FF9800", text=[f"{v:.0f}" for v in _vol], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="신고가 10%",  x=[v*0.10 for v in _h52], y=_cn, orientation='h', marker_color="#F44336", text=[f"{v:.0f}" for v in _h52], textposition='inside'))
                     _fig4.update_layout(
-                        barmode="stack", height=max(420, len(_cn)*32),
-                        margin=dict(l=10, r=50, t=10, b=10),
+                        barmode="stack", height=max(400, len(_cn)*30),
+                        margin=dict(l=10, r=40, t=10, b=10),
                         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                         font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
-                        xaxis_title="종합 점수 기여"
+                        xaxis_title="점수 기여 (합계 = 종합점수)"
                     )
                     st.plotly_chart(_fig4, use_container_width=True)
 
     st.divider()
-    st.caption("⭐ 강력: RS≥65 + 수급≥65  |  ✅ 유망: RS≥55 + 수급≥55  |  수급 = 기관+외국인 20일 순매수 백분위")
+    st.caption("⭐ 강력: RS≥65 + 수급≥65  ·  ✅ 유망: RS≥55 + 수급≥55  ·  점수는 강한 섹터 내 백분위")
