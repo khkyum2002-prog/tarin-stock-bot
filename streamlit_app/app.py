@@ -154,6 +154,7 @@ div[data-testid="stToggle"] label { font-size: 0.875rem; }
 ::-webkit-scrollbar-thumb:hover { background: #484f58; }
 
 /* ── 등급 뱃지 ── */
+.badge-bz   { background:#2d1f3d; color:#c792ea; border:1px solid #9c59d1; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:700; margin:2px; display:inline-block; }
 .badge-star { background:#1f3a2a; color:#3fb950; border:1px solid #3fb950; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:700; margin:2px; display:inline-block; }
 .badge-good { background:#1a2c45; color:#79c0ff; border:1px solid #388bfd; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:600; margin:2px; display:inline-block; }
 .badge-watch { background:#2d2a1e; color:#e3b341; border:1px solid #d29922; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:500; margin:2px; display:inline-block; }
@@ -1289,17 +1290,18 @@ def get_composite_score(top_n=30):
     if high52_raw:
         high52_scores = (pd.Series(high52_raw).rank(pct=True) * 100).round(1).to_dict()
 
-    # ── 6. 수급 — 네이버 파이낸스 기관+외국인 20일 순매수 (병렬 스크래핑) ──
+    # ── 6. 수급 — 네이버 파이낸스 기관+외국인 40일치 수집 (빈집 감지용) ──
     _hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://finance.naver.com/",
     }
 
     def _fetch_supply(ticker):
+        """40일치 기관+외국인 순매수 수집 → (short5, long40) 반환"""
         code = ticker.replace(".KS", "").replace(".KQ", "")
-        total = 0.0
+        daily = []
         try:
-            for pg in range(1, 3):   # 2페이지 = ~40영업일치
+            for pg in range(1, 3):
                 r = requests.get(
                     f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
                     headers=_hdrs, timeout=10)
@@ -1307,37 +1309,49 @@ def get_composite_score(top_n=30):
                 soup = _BS(r.content, "html.parser", from_encoding="euc-kr")
                 tables = soup.find_all("table")
                 if len(tables) < 4: break
-                rows = tables[3].find_all("tr")
-                count = 0
-                for row in rows:
+                for row in tables[3].find_all("tr"):
                     cells = [c.get_text(strip=True) for c in row.find_all("td")]
                     if len(cells) >= 7 and cells[0] and "." in cells[0]:
                         try:
-                            close_p = int(cells[1].replace(",", ""))
-                            inst_q  = int(cells[5].replace(",", "").replace("+", "") or "0")
-                            frgn_q  = int(cells[6].replace(",", "").replace("+", "") or "0")
-                            if close_p > 0:
-                                total += (inst_q + frgn_q) * close_p
-                                count += 1
-                                if count >= 20: break   # 최근 20영업일
+                            cp  = int(cells[1].replace(",", ""))
+                            iq  = int(cells[5].replace(",", "").replace("+", "") or "0")
+                            fq  = int(cells[6].replace(",", "").replace("+", "") or "0")
+                            if cp > 0:
+                                daily.append((iq + fq) * cp)   # 순매수대금 (음수=순매도)
+                                if len(daily) >= 40: break
                         except Exception:
                             pass
+                if len(daily) >= 40: break
         except Exception:
             pass
-        return ticker, total
+        short5 = sum(daily[:5])  if len(daily) >= 5  else 0  # 최근 5일 (전환 감지)
+        long40 = sum(daily[:40]) if daily else 0              # 40일 누적 (빈집 수준)
+        return ticker, short5, long40
 
-    supply_raw = {}
+    short5_raw = {}; long40_raw = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        for tk, val in pool.map(_fetch_supply, tks):
-            supply_raw[tk] = val
+        for tk, s5, l40 in pool.map(_fetch_supply, tks):
+            short5_raw[tk] = s5
+            long40_raw[tk] = l40
 
+    # 최근 5일 수급 백분위 (높을수록 현재 강하게 들어오는 중)
     supply_scores = {}
-    if any(v != 0 for v in supply_raw.values()):
-        supply_scores = (pd.Series(supply_raw).rank(pct=True) * 100).round(1).to_dict()
+    if any(v != 0 for v in short5_raw.values()):
+        supply_scores = (pd.Series(short5_raw).rank(pct=True) * 100).round(1).to_dict()
 
-    # ── 7. 종합 점수 합산 (5개 신호) ──
-    # RS 25% + 수급 30% + 거래대금 15% + 모멘텀 20% + 52주신고가 10%
-    WEIGHTS = [("rs", 0.25), ("supply", 0.30), ("volume", 0.15), ("momentum", 0.20), ("high52", 0.10)]
+    # 빈집 감지: long40이 하위 30% (많이 팔린 상태) + 최근 5일 양수 (전환 시작)
+    binzip_set = set()
+    if long40_raw:
+        l40_pct = pd.Series(long40_raw).rank(pct=True)  # 낮을수록 빈집
+        for tk in tks:
+            is_empty  = l40_pct.get(tk, 1.0) <= 0.35    # 하위 35% = 빈집
+            is_inflow = short5_raw.get(tk, 0) > 0        # 최근 5일 순매수 양수 = 전환
+            if is_empty and is_inflow:
+                binzip_set.add(tk)
+
+    # ── 7. 종합 점수 합산 ──
+    # RS 25% + 수급(5일) 30% + 모멘텀 20% + 거래대금 15% + 신고가 10%
+    WEIGHTS = [("rs", 0.25), ("supply", 0.30), ("momentum", 0.20), ("volume", 0.15), ("high52", 0.10)]
     score_maps = {"rs": rs_scores, "supply": supply_scores,
                   "volume": vol_scores, "momentum": mom_scores, "high52": high52_scores}
 
@@ -1353,10 +1367,14 @@ def get_composite_score(top_n=30):
         if not parts: continue
         score = round(sum(v * w for v, w in zip(parts, wts)) / sum(wts), 1)
 
-        # 등급: RS + 수급 둘 다 강해야 진짜 후보
         rs_v  = vals["rs"]  or 0
         sup_v = vals["supply"] or 0
-        if rs_v >= 65 and sup_v >= 65:
+        is_bz = t in binzip_set
+
+        # 빈집전환이 최우선 — 수급 바닥에서 막 들어오는 종목
+        if is_bz:
+            grade = "🏚️ 빈집"
+        elif rs_v >= 65 and sup_v >= 65:
             grade = "⭐ 강력"
         elif rs_v >= 55 and sup_v >= 55:
             grade = "✅ 유망"
@@ -1367,14 +1385,16 @@ def get_composite_score(top_n=30):
 
         sector = STOCK_SECTOR.get(t, "기타")
         results.append({"ticker": t, "name": nm, "score": score, "grade": grade,
-                         "sector": sector,
+                         "sector": sector, "binzip": is_bz,
                          "rs": vals["rs"], "supply": vals["supply"],
                          "volume": vals["volume"], "momentum": vals["momentum"],
                          "high52": vals["high52"]})
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    # 빈집전환 종목을 최상단으로, 나머지는 점수순
+    results.sort(key=lambda x: (not x["binzip"], -x["score"]))
     return {"results": results[:top_n], "total": len(results),
-            "has_supply": bool(supply_scores), "strong_sectors": sorted(strong_sectors)}
+            "has_supply": bool(supply_scores), "strong_sectors": sorted(strong_sectors),
+            "binzip_count": len(binzip_set)}
 
 def calc_weekly_trend_excel(df_wk):
     """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
@@ -3389,14 +3409,18 @@ with tab4:
                         unsafe_allow_html=True)
             st.caption(f"초록 = KOSPI 대비 강한 섹터 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
 
-            # ── 강력/유망 뱃지 ──
+            # ── 뱃지 ──
+            _bz   = [r for r in _rows if r.get("grade","").startswith("🏚️")]
             _star = [r for r in _rows if r.get("grade","").startswith("⭐")]
             _good = [r for r in _rows if r.get("grade","").startswith("✅")]
-            if _star or _good:
-                _bh  = "".join(f'<span class="badge-star">⭐ {r["name"]} {r["score"]:.0f}</span>' for r in _star)
+            if _bz or _star or _good:
+                _bh  = "".join(f'<span class="badge-bz">🏚️ 빈집전환 {r["name"]}</span>' for r in _bz)
+                _bh += "".join(f'<span class="badge-star">⭐ {r["name"]} {r["score"]:.0f}</span>' for r in _star)
                 _bh += "".join(f'<span class="badge-good">✅ {r["name"]} {r["score"]:.0f}</span>' for r in _good)
                 st.markdown(f'<div style="margin:0.6rem 0 0.8rem">{_bh}</div>',
                             unsafe_allow_html=True)
+            if _comp.get("binzip_count", 0) == 0:
+                st.caption("🏚️ 빈집전환 종목 없음 — 현재 강한 섹터 내 수급 바닥+전환 종목이 없습니다")
 
             if _rows:
                 _df_comp = pd.DataFrame(_rows)
