@@ -1,0 +1,55 @@
+name: 삼성전자 빈집전환 알림
+
+on:
+  schedule:
+    # 평일 오후 4시 KST = 07:00 UTC
+    - cron: "0 7 * * 1-5"
+  workflow_dispatch:  # 수동 실행 허용
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run binzip check
+        id: check
+        run: python scripts/check_binzip_alert.py
+
+      - name: Send email alert
+        if: steps.check.outputs.binzip == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_PASSWORD }}
+          to: khkyum2002@gmail.com
+          from: ${{ secrets.GMAIL_USERNAME }}
+          subject: "🚨 삼성전자 빈집전환 신호!"
+          body: |
+            안녕하세요!
+
+            삼성전자(005930)에서 빈집전환 신호가 감지되었습니다.
+
+            📊 수급 현황:
+            - 최근 5일 기관+외국인 순매수: ${{ steps.check.outputs.short5 }}억
+            - 40일 누적 순매수: ${{ steps.check.outputs.long40 }}억
+
+            조건:
+            ✅ 40일 누적 < 0 (빈집) → 수급 바닥 상태
+            ✅ 최근 5일 > 0 (전환) → 매수 유입 시작
+
+            이 신호는 수급이 바닥에서 반등을 시작하는 패턴입니다.
+            실제 매매 전 추가 확인을 권장합니다.
+
+            ---
+            tarin-stock-bot 자동 알림

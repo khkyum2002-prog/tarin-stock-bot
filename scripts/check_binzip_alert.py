@@ -10,7 +10,7 @@ TARGET = "005930"  # 삼성전자
 HDRS = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 
 
-def fetch_daily_supply(code: str, days: int = 40) -> list[float]:
+def fetch_daily_supply(code: str, days: int = 40) -> list:
     daily = []
     for pg in range(1, 4):
         if len(daily) >= days:
@@ -48,44 +48,42 @@ def main():
     daily = fetch_daily_supply(TARGET, days=40)
 
     if len(daily) < 5:
-        print("데이터 부족 — 스킵")
+        print("데이터 부족 -- 스킵")
         sys.exit(0)
 
     short5 = sum(daily[:5])
     long40 = sum(daily[:40]) if len(daily) >= 40 else sum(daily)
 
-    short5_억 = short5 / 1e8
-    long40_억 = long40 / 1e8
+    short5_uk = short5 / 1e8
+    long40_uk = long40 / 1e8
 
-    print(f"삼성전자 | 5일 수급: {short5_억:+.1f}억  40일 누적: {long40_억:+.1f}억")
+    print(f"삼성전자 | 5일 수급: {short5_uk:+.1f}억  40일 누적: {long40_uk:+.1f}억")
 
     is_empty = long40 < 0
     is_inflow = short5 > 0
     is_binzip = is_empty and is_inflow
 
+    signal_file = os.environ.get("GITHUB_OUTPUT", "")
+
     if is_binzip:
-        print("🚨 빈집전환 신호 감지!")
-        # GitHub Actions 환경: 출력 파일에 신호 기록 (workflow에서 읽음)
-        signal_file = os.environ.get("GITHUB_OUTPUT", "")
+        print("ALERT: 빈집전환 신호 감지!")
         if signal_file:
             with open(signal_file, "a", encoding="utf-8") as f:
                 f.write(f"binzip=true\n")
-                f.write(f"short5={short5_억:.1f}\n")
-                f.write(f"long40={long40_억:.1f}\n")
-        sys.exit(0)
+                f.write(f"short5={short5_uk:.1f}\n")
+                f.write(f"long40={long40_uk:.1f}\n")
     else:
         status = []
         if not is_empty:
-            status.append(f"40일 누적 양수({long40_억:+.1f}억) — 아직 빈집 아님")
+            status.append(f"40일 누적 양수({long40_uk:+.1f}억) -- 아직 빈집 아님")
         if not is_inflow:
-            status.append(f"5일 수급 음수({short5_억:+.1f}억) — 아직 전환 안됨")
+            status.append(f"5일 수급 음수({short5_uk:+.1f}억) -- 아직 전환 안됨")
         print("정상: " + " / ".join(status))
-
-        signal_file = os.environ.get("GITHUB_OUTPUT", "")
         if signal_file:
             with open(signal_file, "a", encoding="utf-8") as f:
                 f.write("binzip=false\n")
-        sys.exit(0)
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":
