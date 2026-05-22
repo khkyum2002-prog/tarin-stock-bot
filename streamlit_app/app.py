@@ -3476,21 +3476,25 @@ with tab4:
             _has_sup  = _comp.get("has_supply", False)
             _str_secs = _comp.get("strong_sectors", [])
 
-            # ── 섹터 현황 태그 ──
+            # ── 섹터 필터 (클릭 가능) ──
             _all_secs = ["반도체","방산","조선","2차전지","바이오","K뷰티","로봇","자동차","원전","게임/엔터","금융"]
-            _sec_html = " ".join(
-                f'<span class="sector-tag on">✓ {s}</span>' if s in _str_secs
-                else f'<span class="sector-tag">{s}</span>'
-                for s in _all_secs
+            st.caption(f"강한 섹터(초록)가 기본 선택됩니다 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
+            _sel_secs = st.pills(
+                "섹터 필터",
+                _all_secs,
+                selection_mode="multi",
+                default=_str_secs,
+                key="sec_filter",
+                label_visibility="collapsed",
             )
-            st.markdown(f'<div style="margin:0.5rem 0 0.3rem">{_sec_html}</div>',
-                        unsafe_allow_html=True)
-            st.caption(f"초록 = KOSPI 대비 강한 섹터 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
+
+            # 선택된 섹터로 필터링 (선택 없으면 전체)
+            _filtered_rows = [r for r in _rows if r.get("sector") in _sel_secs] if _sel_secs else _rows
 
             # ── 뱃지 ──
-            _bz   = [r for r in _rows if r.get("grade","").startswith("🏚️")]
-            _star = [r for r in _rows if r.get("grade","").startswith("⭐")]
-            _good = [r for r in _rows if r.get("grade","").startswith("✅")]
+            _bz   = [r for r in _filtered_rows if r.get("grade","").startswith("🏚️")]
+            _star = [r for r in _filtered_rows if r.get("grade","").startswith("⭐")]
+            _good = [r for r in _filtered_rows if r.get("grade","").startswith("✅")]
             if _bz or _star or _good:
                 _bh  = "".join(f'<span class="badge-bz">🏚️ 빈집전환 {r["name"]}</span>' for r in _bz)
                 _bh += "".join(f'<span class="badge-star">⭐ {r["name"]} {r["score"]:.0f}</span>' for r in _star)
@@ -3500,8 +3504,8 @@ with tab4:
             if _comp.get("binzip_count", 0) == 0:
                 st.caption("🏚️ 빈집전환 종목 없음 — 현재 강한 섹터 내 수급 바닥+전환 종목이 없습니다")
 
-            if _rows:
-                _df_comp = pd.DataFrame(_rows)
+            if _filtered_rows:
+                _df_comp = pd.DataFrame(_filtered_rows)
                 _df_disp = _df_comp.rename(columns={
                     "grade":"등급","sector":"섹터","name":"종목명","score":"종합",
                     "rs":"RS","supply":"수급","momentum":"모멘텀","volume":"거래대금","high52":"신고가"
@@ -3520,7 +3524,7 @@ with tab4:
                 )
 
                 with st.expander("📊 신호별 점수 차트"):
-                    _top15 = _rows[:15][::-1]
+                    _top15 = _filtered_rows[:15][::-1]
                     _cn  = [r["name"]     for r in _top15]
                     _sup = [r["supply"]   or 0 for r in _top15]
                     _rs  = [r["rs"]       or 0 for r in _top15]
