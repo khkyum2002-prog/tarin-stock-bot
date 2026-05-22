@@ -2316,33 +2316,35 @@ with tab1:
 
         # ── 1. 종합 신호 ──
         st.markdown('<p class="zone-header">📊 종합 신호</p>', unsafe_allow_html=True)
-        c1,c2,c3,c4 = st.columns(4)
+        c1,c2 = st.columns(2)
         if canary and "error" not in canary:
             color = "sig-green" if canary["mode"]=="공격" else "sig-red"
             c1.markdown(f'<div class="{color}">🐤 카나리아 신호<br><b>{canary["mode"]} 모드</b><br><span style="font-size:0.78rem">나스닥 모멘텀 {canary["qqq_mom"]*100:+.1f}%</span></div>', unsafe_allow_html=True)
         if bofa and "error" not in bofa:
             heat_color = "sig-red" if bofa["heat"]>=7.5 else ("sig-yellow" if bofa["heat"]>=5 else "sig-green")
             c2.markdown(f'<div class="{heat_color}">🌡️ 시장 열기<br><b>{bofa["heat"]}/10점</b><br><span style="font-size:0.78rem">{_heat_label(bofa["heat"])} · 상승추세{"✅" if bofa["trend_on"] else "❌"}</span></div>', unsafe_allow_html=True)
+        c1,c2 = st.columns(2)
         if blood and "error" not in blood:
             blood_color = "sig-green" if blood["vs_ma60"] == "위" else "sig-red"
-            c3.markdown(f'<div class="{blood_color}">🩸 채권 스트레스<br><b>60일평균 {blood["vs_ma60"]}</b><br><span style="font-size:0.78rem">수치: {blood["value"]:.4f}</span></div>', unsafe_allow_html=True)
+            c1.markdown(f'<div class="{blood_color}">🩸 채권 스트레스<br><b>60일평균 {blood["vs_ma60"]}</b><br><span style="font-size:0.78rem">수치: {blood["value"]:.4f}</span></div>', unsafe_allow_html=True)
         if zbt and "error" not in zbt:
             zbt_color = "sig-green" if zbt.get("signal") else "sig-yellow"
-            c4.markdown(f'<div class="{zbt_color}">📡 반등 신호(ZBT)<br><b>{"🟢 신호 발생!" if zbt.get("signal") else "⏳ 대기 중"}</b><br><span style="font-size:0.78rem">수치: {zbt["zbt"]:.3f}</span></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="{zbt_color}">📡 반등 신호(ZBT)<br><b>{"🟢 신호 발생!" if zbt.get("signal") else "⏳ 대기 중"}</b><br><span style="font-size:0.78rem">수치: {zbt["zbt"]:.3f}</span></div>', unsafe_allow_html=True)
 
         st.divider()
 
         # ── 2. 공포·탐욕 오실레이터 ──
         st.markdown('<p class="zone-header">😱 공포·탐욕 오실레이터 — 시장 심리 지수</p>', unsafe_allow_html=True)
         st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)")
-        _fg_cols = st.columns([1,1,1,1,1,1])
+        _fg_r1 = st.columns(3)
+        _fg_r2 = st.columns(3)
         if fg and "error" not in fg:
-            _fg_cols[0].metric("S&P500 심리", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}", help="S&P500 기준 공포·탐욕 오실레이터. 양수=탐욕(과열), 음수=공포(매수기회)")
-            _fg_cols[1].metric("나스닥 심리", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}", help="나스닥 기준 공포·탐욕 오실레이터")
-            _fg_cols[2].metric("S&P500 추세", fg["spy_impulse"], help="단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립")
-            _fg_cols[3].metric("나스닥 추세", fg["qqq_impulse"], help="나스닥 단기 추세 방향")
-            _fg_cols[4].metric("S&P500 위치", f"{fg['spy_gap']:+.2f}%", help="장기 이평선(20·60·120·200일 평균) 대비 현재가 위치. 양수=상승세")
-            _fg_cols[5].metric("나스닥 위치", f"{fg['qqq_gap']:+.2f}%", help="나스닥 장기 이평선 대비 현재가 위치")
+            _fg_r1[0].metric("S&P500 심리", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}", help="S&P500 기준 공포·탐욕 오실레이터. 양수=탐욕(과열), 음수=공포(매수기회)")
+            _fg_r1[1].metric("나스닥 심리", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}", help="나스닥 기준 공포·탐욕 오실레이터")
+            _fg_r1[2].metric("S&P500 추세", fg["spy_impulse"], help="단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립")
+            _fg_r2[0].metric("나스닥 추세", fg["qqq_impulse"], help="나스닥 단기 추세 방향")
+            _fg_r2[1].metric("S&P500 위치", f"{fg['spy_gap']:+.2f}%", help="장기 이평선(20·60·120·200일 평균) 대비 현재가 위치. 양수=상승세")
+            _fg_r2[2].metric("나스닥 위치", f"{fg['qqq_gap']:+.2f}%", help="나스닥 장기 이평선 대비 현재가 위치")
             c1,c2 = st.columns(2)
             c1.metric("S&P500 패턴 카운트", f"매도 {fg['spy_td_sell']} / 매수 {fg['spy_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
             c2.metric("나스닥 패턴 카운트", f"매도 {fg['qqq_td_sell']} / 매수 {fg['qqq_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
@@ -2370,26 +2372,28 @@ with tab1:
         # ── 3. 코포크 + ZBT ──
         st.markdown('<p class="zone-header">📈 중장기 추세 지표</p>', unsafe_allow_html=True)
         st.caption("코포크: 중장기 추세 지표 — 양수(+)이고 상승 중이면 매수 유리한 구간")
-        _cp1, _cp2, _cp3 = st.columns([2,2,1])
+        _cp1, _cp2 = st.columns(2)
         with _cp1:
             st.caption("표준 코포크 (중장기)")
             if coppock and "error" not in coppock:
-                cols=st.columns(len(coppock))
+                _cp_n = min(len(coppock), 2)
+                cols=st.columns(_cp_n)
                 for i,(lbl,v) in enumerate(coppock.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
+                    cols[i % _cp_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
         with _cp2:
             st.caption("빠른 코포크 (단기)")
             if coppock_fast and "error" not in coppock_fast:
-                cols=st.columns(len(coppock_fast))
+                _cpf_n = min(len(coppock_fast), 2)
+                cols=st.columns(_cpf_n)
                 for i,(lbl,v) in enumerate(coppock_fast.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
-        with _cp3:
+                    cols[i % _cpf_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
+        if zbt and "error" not in zbt:
             st.caption("반등 신호(ZBT)")
-            if zbt and "error" not in zbt:
-                st.metric("ZBT 신호", "🟢 발생!" if zbt.get("signal") else "⏳ 대기", f"수치: {zbt['zbt']:.3f}", help="급락 후 반등 포착 신호. 발생 시 단기 저점 가능성")
-                if zbt.get("vix"): st.metric("변동성(VIX)", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️ 불안", help="VIX: 시장 공포 지수. 20 이하면 안정, 30 이상이면 공포 구간")
+            _zbt_c1, _zbt_c2 = st.columns(2)
+            _zbt_c1.metric("ZBT 신호", "🟢 발생!" if zbt.get("signal") else "⏳ 대기", f"수치: {zbt['zbt']:.3f}", help="급락 후 반등 포착 신호. 발생 시 단기 저점 가능성")
+            if zbt.get("vix"): _zbt_c2.metric("변동성(VIX)", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️ 불안", help="VIX: 시장 공포 지수. 20 이하면 안정, 30 이상이면 공포 구간")
 
         st.divider()
 
@@ -2730,10 +2734,10 @@ with tab2:
                 st.caption(f"기준일: {kr_fg_auto['date']}  |  {kr_fg_auto.get('source','')}")
                 for label, v in kr_fg_auto["results"].items():
                     st.markdown(f"**{label}**")
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     c1.metric("오실레이터", v["osc"], f"{'🟢' if v['osc']>0 else '🔴'} {v['sentiment']}")
                     c2.metric("임펄스", v["impulse"])
-                    c3.metric("TD 매도/매수", f"{v['td_sell']} / {v['td_buy']}")
+                    st.metric("TD 매도/매수", f"{v['td_sell']} / {v['td_buy']}")
                     if v.get("chart"):
                         with st.expander(f"📈 {label} 오실레이터 차트"):
                             ch = v["chart"]
@@ -2895,10 +2899,10 @@ with tab2:
             inst_flow = get_krx_inst_market_flow(days=10)
             vol_str = get_krx_volume_strength()
         if "error" not in vol_str:
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             c1.metric("KOSPI 거래대금 (오늘)", f"{vol_str['today_tril']:.2f}조")
             c2.metric("20일 평균", f"{vol_str['ma20_tril']:.2f}조")
-            c3.metric("거래대금 강도", f"{vol_str['rotation_rate']:.0f}%", vol_str["level"])
+            st.metric("거래대금 강도", f"{vol_str['rotation_rate']:.0f}%", vol_str["level"])
             if vol_str.get("chart"):
                 ch = vol_str["chart"]
                 fig_tv = go.Figure()
@@ -3140,14 +3144,14 @@ with tab3:
                 st.error(f"❌ {t} {kr}: {wt['error']}")
             else:
                 st.markdown(f"#### 📌 **{t}** {kr}")
-                c1,c2,c3 = st.columns(3)
+                c1,c2 = st.columns(2)
                 c1.metric("CMF (4주)", f"{wt['cmf']:.4f}", "🟢 자금유입" if wt['cmf']>0 else "🔴 자금유출")
                 c2.metric("주간 임펄스", wt["impulse_weekly"])
                 sig = "🟢 매수신호" if wt["buy_signal"] else ("🔴 매도신호" if wt["sell_signal"] else "⏳ 대기")
-                c3.metric("CMF 신호", sig, f"최근4주 매수: {wt['recent_buy_4w']}회")
+                st.metric("CMF 신호", sig, f"최근4주 매수: {wt['recent_buy_4w']}회")
                 c1.metric("주봉 TD 매도/매수", f"{wt['w_td_sell']} / {wt['w_td_buy']}")
                 c2.metric("일봉 TD 매도/매수", f"{wt['d_td_sell']} / {wt['d_td_buy']}")
-                c3.metric("월봉 TD 매도/매수", f"{wt['m_td_sell']} / {wt['m_td_buy']}")
+                st.metric("월봉 TD 매도/매수", f"{wt['m_td_sell']} / {wt['m_td_buy']}")
                 if wt.get("ma10"): st.caption(f"현재가: {wt['price']:,} | 주봉 MA10: {wt['ma10']:,}")
                 if wt.get("chart"):
                     with st.expander("📊 주봉 차트 보기 (가격 + CMF)"):
@@ -3185,11 +3189,11 @@ with tab3:
                     st.divider()
                     st.markdown('<p class="zone-header">📅 주간 추세판별기 〔Excel HTS〕</p>', unsafe_allow_html=True)
                     st.caption(f"시트: {_wk_sn} | {wkr['rows']}주 | {wkr['date_range']}")
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     c1.metric("CMF (4주)", f"{wkr['cmf']:.4f}", "🟢 자금유입" if wkr['cmf'] > 0 else "🔴 자금유출")
                     c2.metric("주간 임펄스", wkr["impulse_weekly"])
                     sig = "🟢 매수신호" if wkr["buy_signal"] else ("🔴 매도신호" if wkr["sell_signal"] else "⏳ 대기")
-                    c3.metric("CMF 신호", sig, f"최근4주 매수: {wkr['recent_buy_4w']}회")
+                    st.metric("CMF 신호", sig, f"최근4주 매수: {wkr['recent_buy_4w']}회")
                     c1.metric("주봉 TD 매도/매수", f"{wkr['w_td_sell']} / {wkr['w_td_buy']}")
                     if wkr.get("ma10"):
                         st.caption(f"현재가: {wkr['price']:,} | 주봉 MA10: {wkr['ma10']:,}")
@@ -3279,10 +3283,10 @@ with tab3:
                 st.error(f"❌ {t} {kr}: {ti['error']}")
             else:
                 st.markdown(f"#### 📌 **{t}** {kr}")
-                c1,c2,c3 = st.columns(3)
+                c1,c2 = st.columns(2)
                 c1.metric("거래대금 강도 TI", f"{ti['ti']:.1f}", ti["signal_text"])
                 c2.metric("TI MA3", f"{ti['ti_ma3']:.1f}")
-                c3.metric("TI Signal (EMA7)", f"{ti['ti_signal']:.1f}")
+                st.metric("TI Signal (EMA7)", f"{ti['ti_signal']:.1f}")
                 st.caption("TI ≥75: 🔴 과열 | 40~74: 🟡 중립 | <40: 🟢 매집 구간")
                 if ti.get("chart"):
                     with st.expander("📊 거래대금 강도 차트 보기"):
@@ -3363,12 +3367,12 @@ with tab3:
             st.markdown(f"#### 📌 **{t}** {kr}")
             f_sign = "+" if so["frgn_agg_bil"] >= 0 else ""
             i_sign = "+" if so["inst_agg_bil"] >= 0 else ""
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             c1.metric("20일 외국인", f"{f_sign}{so['frgn_agg_bil']:.1f}억",
                       "🟢 순매수" if so["frgn_agg_bil"] >= 0 else "🔴 순매도")
             c2.metric("20일 기관", f"{i_sign}{so['inst_agg_bil']:.1f}억",
                       "🟢 순매수" if so["inst_agg_bil"] >= 0 else "🔴 순매도")
-            c3.metric("현재가", f"{so['latest_close']:,}원")
+            st.metric("현재가", f"{so['latest_close']:,}원")
             ch = so["chart"]
             # 외국인/기관 2행 차트
             fig_so = make_subplots(rows=2, cols=1, shared_xaxes=True,
