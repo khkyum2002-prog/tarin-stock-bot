@@ -2363,7 +2363,7 @@ with tab1:
                                         font_color='#e0e0e0',legend=dict(orientation='h',y=1.08))
                     _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
                     _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
-                    st.plotly_chart(_fig,use_container_width=True)
+                    st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
         st.divider()
 
@@ -2424,7 +2424,7 @@ with tab1:
                 use_container_width=True, hide_index=True,
                 column_config={"강도점수(0~100)":st.column_config.ProgressColumn("강도점수(0~100)",min_value=0,max_value=100,format="%.1f")})
             with st.expander("📊 업종별 강도 차트"):
-                st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True)
+                st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True, config={"scrollZoom": False})
         elif us_sector: st.error(us_sector.get("error"))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2574,7 +2574,7 @@ with tab2:
                                     margin=dict(l=10,r=70,t=10,b=10),
                                     plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
                 _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
-                st.plotly_chart(_fig,use_container_width=True)
+                st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
         elif kr_etf: st.error(kr_etf.get("error"))
 
         st.divider()
@@ -2650,7 +2650,7 @@ with tab2:
                                 margin=dict(l=10,r=70,t=10,b=10),
                                 plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
             _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
-            st.plotly_chart(_fig,use_container_width=True)
+            st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
@@ -2713,7 +2713,7 @@ with tab2:
                                  margin=dict(l=10,r=70,t=10,b=10),
                                  plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
             _fig_e.add_vline(x=0, line_dash="solid", line_color="#888888", opacity=0.8)
-            st.plotly_chart(_fig_e, use_container_width=True)
+            st.plotly_chart(_fig_e, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
@@ -2750,7 +2750,7 @@ with tab2:
                                                font_color='#e0e0e0', showlegend=False)
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
-                            st.plotly_chart(_fig, use_container_width=True)
+                            st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
     st.caption("📂 피어앤그리드.xlsx (KOSPI / KOSDAQ 시트) — 정밀 분석")
     fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
     if fg_file:
@@ -2808,7 +2808,7 @@ with tab2:
                                     font_color='#e0e0e0',showlegend=False)
                 _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                 _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                st.plotly_chart(_fig,use_container_width=True)
+                st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
@@ -2860,7 +2860,7 @@ with tab2:
                         legend=dict(orientation="h",y=1.05))
                     fig_s.update_yaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
                     fig_s.update_xaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_s, use_container_width=True)
+                    st.plotly_chart(fig_s, use_container_width=True, config={"scrollZoom": False})
 
             c1, c2 = st.columns(2)
             with c1:
@@ -2908,7 +2908,7 @@ with tab2:
                                             line=dict(color="#FF8C00", width=2, dash="dot")))
                 fig_tv = _chart_layout(fig_tv, height=220)
                 fig_tv.update_yaxes(title_text="거래대금(조원)")
-                st.plotly_chart(fig_tv, use_container_width=True)
+                st.plotly_chart(fig_tv, use_container_width=True, config={"scrollZoom": False})
         else:
             st.caption(f"거래대금 강도: {vol_str['error']}")
         if "error" not in inst_flow:
@@ -2929,7 +2929,7 @@ with tab2:
                     fig_inst = _chart_layout(fig_inst, height=200)
                     fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원)")
                     fig_inst.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-                    st.plotly_chart(fig_inst, use_container_width=True)
+                    st.plotly_chart(fig_inst, use_container_width=True, config={"scrollZoom": False})
         else:
             st.caption(f"기관 순매수: {inst_flow['error']}")
 
@@ -3168,7 +3168,7 @@ with tab3:
                                             legend=dict(orientation='h',y=1.08))
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
+                        st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
                 st.divider()
 
         # ── 추세판별기 주간 Excel (선택) ──
@@ -3213,7 +3213,7 @@ with tab3:
                                                 legend=dict(orientation='h', y=1.08))
                             _fig2.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig2.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
-                            st.plotly_chart(_fig2, use_container_width=True)
+                            st.plotly_chart(_fig2, use_container_width=True, config={"scrollZoom": False})
             except Exception as e:
                 st.error(f"추세판별기(주간) 파일 읽기 오류: {e}")
 
@@ -3262,7 +3262,7 @@ with tab3:
                                          showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
                     fig_tsd.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_tsd, use_container_width=True)
+                    st.plotly_chart(fig_tsd, use_container_width=True, config={"scrollZoom": False})
                     st.caption(f"시트: {_tsd_sn} | 매수: {buy_col} | 매도: {sell_col}")
                 else:
                     st.warning(f"매수 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)}")
@@ -3306,7 +3306,7 @@ with tab3:
                                             font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
+                        st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
                 st.divider()
 
         st.divider()
@@ -3340,7 +3340,7 @@ with tab3:
                                         showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_rr.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
                     fig_rr.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_rr, use_container_width=True)
+                    st.plotly_chart(fig_rr, use_container_width=True, config={"scrollZoom": False})
                     st.caption(f"컬럼: {rr_col} | 출처: 국장 거래대금 강도 Excel")
                 else:
                     st.warning(f"_RotationRate_ 컬럼 미감지. 컬럼 목록: {list(df_txi.columns)}")
@@ -3396,7 +3396,7 @@ with tab3:
             )
             fig_so.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_so.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-            st.plotly_chart(fig_so, use_container_width=True)
+            st.plotly_chart(fig_so, use_container_width=True, config={"scrollZoom": False})
             st.divider()
 
         st.markdown('<p class="zone-header">🏦 기관 수급 〔KRX 자동〕</p>', unsafe_allow_html=True)
@@ -3437,7 +3437,7 @@ with tab3:
                                   font_color="#e0e0e0", legend=dict(orientation="h", y=1.08))
             fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_si.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-            st.plotly_chart(fig_si, use_container_width=True)
+            st.plotly_chart(fig_si, use_container_width=True, config={"scrollZoom": False})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 4: 종목 선정
@@ -3529,7 +3529,7 @@ with tab4:
                         font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
                         xaxis_title="점수 기여 (합계 = 종합점수)"
                     )
-                    st.plotly_chart(_fig4, use_container_width=True)
+                    st.plotly_chart(_fig4, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
     st.caption("⭐ 강력: RS≥65 + 수급≥65  ·  ✅ 유망: RS≥55 + 수급≥55  ·  점수는 강한 섹터 내 백분위")
