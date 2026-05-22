@@ -22,6 +22,9 @@ st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 /* ── 기본 폰트 / 배경 ── */
 *, *::before, *::after { font-family: 'Inter', sans-serif !important; }
+/* ── 아이콘 폰트 보호 (Material Symbols Rounded) ── */
+span[aria-hidden="true"],
+[data-testid="stExpanderIcon"] { font-family: 'Material Symbols Rounded' !important; }
 .stApp { background: #0d1117; }
 #MainMenu, footer { visibility: hidden; }
 .block-container { max-width: 1100px; padding: 1.5rem 2rem 3rem; }
