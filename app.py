@@ -150,11 +150,28 @@ div[data-testid="stFileUploader"] label { font-size: 0.82rem !important; color: 
     }
     div[data-testid="stFileUploaderDropzone"] {
         padding: 12px !important;
+        min-height: 72px !important;
     }
     div[data-testid="stFileUploaderDropzoneInstructions"] {
+        display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
-        text-align: center;
+        justify-content: center !important;
+        gap: 8px !important;
+        text-align: center !important;
+        width: 100% !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] > div {
+        position: relative !important;
+        display: block !important;
+        width: 100% !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] small {
+        position: relative !important;
+        display: block !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] span {
+        position: relative !important;
     }
 }
 
@@ -168,6 +185,24 @@ div[data-testid="stExpander"] summary {
     font-weight: 500;
     font-size: 0.875rem;
     color: #c9d1d9;
+    list-style: none !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+div[data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
+div[data-testid="stExpander"] summary::marker { content: "" !important; display: none !important; }
+
+/* ── st.pills 모바일 래핑 (겹침 방지) ── */
+div[data-testid="stPillsInput"] > div,
+div[data-testid="stPillsInput"] [role="group"] {
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    gap: 6px !important;
+    padding: 4px 0 !important;
+}
+div[data-testid="stPillsInput"] {
+    overflow: visible !important;
 }
 
 /* ── 캡션 ── */
