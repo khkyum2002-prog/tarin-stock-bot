@@ -54,6 +54,7 @@ div[data-testid="metric-container"] {
     gap: 0;
     border-bottom: 1px solid #21262d;
     background: transparent;
+    flex-wrap: wrap;
 }
 .stTabs [data-baseweb="tab"] {
     font-weight: 600;
@@ -62,10 +63,20 @@ div[data-testid="metric-container"] {
     padding: 10px 20px;
     background: transparent !important;
     border-bottom: 2px solid transparent;
+    white-space: nowrap;
 }
 .stTabs [aria-selected="true"] {
     color: #e6edf3 !important;
     border-bottom: 2px solid #2f81f7 !important;
+}
+/* ── 모바일 탭 ── */
+@media (max-width: 640px) {
+    .stTabs [data-baseweb="tab"] {
+        font-size: 0.72rem;
+        padding: 8px 10px;
+    }
+    .block-container { padding: 1rem 0.75rem 2rem; }
+    [data-testid="stMetricValue"] { font-size: 1.05rem !important; }
 }
 
 /* ── 섹션 헤더 (zone-header) ── */
