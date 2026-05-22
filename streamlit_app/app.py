@@ -175,7 +175,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab4, tab2, tab3, tab1 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 지표", "🔍 종목 분석", "🌎 미국 지표"])
+tab4, tab2, tab3, tab1 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
@@ -2258,7 +2258,23 @@ def _osc_bar_chart(dates, osc_vals, height=220):
 with tab1:
     st.caption("미국 장 마감 후 (한국 오전 6~7시) 실행 권장")
 
-    if st.button("▶ 미국 지표 전체 실행", type="primary", use_container_width=True, key="us_run"):
+    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+        st.markdown("""
+| 지표 | 한 줄 설명 |
+|------|-----------|
+| **카나리아** | 시장 진입 신호. QQQ(나스닥)·TIP(물가채) 모멘텀이 모두 양수면 **공격(주식)**, 하나라도 음수면 **방어(현금·채권)** |
+| **BOFA 열기** | 시장 과열도 (0~10점). **7.5↑ 과열** / 5~7.5 경계 / 2.5~5 보통 / **2.5↓ 안전** |
+| **블러드** | 채권 스트레스 지수. 60일 평균 **위** = 안전, **아래** = 주의 |
+| **ZBT** | 급락 후 반등 포착 신호. **신호 발생 시** 단기 저점 가능성 높음 |
+| **공포·탐욕 오실레이터** | 시장 심리 지수. **양수(+) = 탐욕(과열 주의)** / **음수(-) = 공포(매수 기회)** |
+| **임펄스** | 단기 추세 방향. 🟢 강세 = 주가·MACD 모두 상승 / 🔴 약세 = 모두 하락 / 🔵 중립 |
+| **SuperMA 이격** | 20·60·120·200일 이평 평균 대비 현재가 위치. **양수 = 상승세**, 음수 = 조정권 |
+| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
+| **코포크** | 중장기 추세 지표. **양수(+)이고 상승 중** = 매수 유리 |
+| **상대강도(RS)** | 같은 기간 다른 종목보다 얼마나 더 올랐는지. **높을수록 강세** |
+""")
+
+    if st.button("▶ 미국 시장 분석 시작", type="primary", use_container_width=True, key="us_run"):
         prog = st.progress(0, text="카나리아 분석 중...")
         canary=get_canary_signal(); prog.progress(10, text="BOFA Heat 분석 중...")
         bofa=get_bofa_heat(); prog.progress(20, text="블러드 인디케이터...")
@@ -2273,38 +2289,40 @@ with tab1:
         prog.empty()
 
         # ── 1. 종합 신호 ──
-        st.markdown('<p class="zone-header">종합 신호</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📊 종합 신호</p>', unsafe_allow_html=True)
         c1,c2,c3,c4 = st.columns(4)
         if canary and "error" not in canary:
             color = "sig-green" if canary["mode"]=="공격" else "sig-red"
-            c1.markdown(f'<div class="{color}">🐤 카나리아<br><b>{canary["mode"]}</b><br><span style="font-size:0.78rem">QQQ {canary["qqq_mom"]*100:+.1f}%</span></div>', unsafe_allow_html=True)
+            c1.markdown(f'<div class="{color}">🐤 카나리아 신호<br><b>{canary["mode"]} 모드</b><br><span style="font-size:0.78rem">나스닥 모멘텀 {canary["qqq_mom"]*100:+.1f}%</span></div>', unsafe_allow_html=True)
         if bofa and "error" not in bofa:
             heat_color = "sig-red" if bofa["heat"]>=7.5 else ("sig-yellow" if bofa["heat"]>=5 else "sig-green")
-            c2.markdown(f'<div class="{heat_color}">🔥 BOFA Heat<br><b>{bofa["heat"]}/10</b><br><span style="font-size:0.78rem">{_heat_label(bofa["heat"])} · 추세{"✅" if bofa["trend_on"] else "❌"}</span></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="{heat_color}">🌡️ 시장 열기<br><b>{bofa["heat"]}/10점</b><br><span style="font-size:0.78rem">{_heat_label(bofa["heat"])} · 상승추세{"✅" if bofa["trend_on"] else "❌"}</span></div>', unsafe_allow_html=True)
         if blood and "error" not in blood:
-            c3.markdown(f'<div class="sig-yellow">🩸 블러드<br><b>{blood["value"]:.4f}</b><br><span style="font-size:0.78rem">60MA {blood["vs_ma60"]}</span></div>', unsafe_allow_html=True)
+            blood_color = "sig-green" if blood["vs_ma60"] == "위" else "sig-red"
+            c3.markdown(f'<div class="{blood_color}">🩸 채권 스트레스<br><b>60일평균 {blood["vs_ma60"]}</b><br><span style="font-size:0.78rem">수치: {blood["value"]:.4f}</span></div>', unsafe_allow_html=True)
         if zbt and "error" not in zbt:
             zbt_color = "sig-green" if zbt.get("signal") else "sig-yellow"
-            c4.markdown(f'<div class="{zbt_color}">📡 ZBT<br><b>{zbt["zbt"]:.3f}</b><br><span style="font-size:0.78rem">{"🟢 반등신호!" if zbt.get("signal") else "⏳ 대기중"}</span></div>', unsafe_allow_html=True)
+            c4.markdown(f'<div class="{zbt_color}">📡 반등 신호(ZBT)<br><b>{"🟢 신호 발생!" if zbt.get("signal") else "⏳ 대기 중"}</b><br><span style="font-size:0.78rem">수치: {zbt["zbt"]:.3f}</span></div>', unsafe_allow_html=True)
 
         st.divider()
 
-        # ── 2. 피어앤그리드 오실레이터 ──
-        st.markdown('<p class="zone-header">😱 피어앤그리드 오실레이터</p>', unsafe_allow_html=True)
+        # ── 2. 공포·탐욕 오실레이터 ──
+        st.markdown('<p class="zone-header">😱 공포·탐욕 오실레이터 — 시장 심리 지수</p>', unsafe_allow_html=True)
+        st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)")
         _fg_cols = st.columns([1,1,1,1,1,1])
         if fg and "error" not in fg:
-            _fg_cols[0].metric("SPX Osc", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}")
-            _fg_cols[1].metric("NDX Osc", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}")
-            _fg_cols[2].metric("SPY 임펄스", fg["spy_impulse"])
-            _fg_cols[3].metric("QQQ 임펄스", fg["qqq_impulse"])
-            _fg_cols[4].metric("SPY SuperMA", f"{fg['spy_gap']:+.2f}%")
-            _fg_cols[5].metric("QQQ SuperMA", f"{fg['qqq_gap']:+.2f}%")
+            _fg_cols[0].metric("S&P500 심리", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}", help="S&P500 기준 공포·탐욕 오실레이터. 양수=탐욕(과열), 음수=공포(매수기회)")
+            _fg_cols[1].metric("나스닥 심리", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}", help="나스닥 기준 공포·탐욕 오실레이터")
+            _fg_cols[2].metric("S&P500 추세", fg["spy_impulse"], help="단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립")
+            _fg_cols[3].metric("나스닥 추세", fg["qqq_impulse"], help="나스닥 단기 추세 방향")
+            _fg_cols[4].metric("S&P500 위치", f"{fg['spy_gap']:+.2f}%", help="장기 이평선(20·60·120·200일 평균) 대비 현재가 위치. 양수=상승세")
+            _fg_cols[5].metric("나스닥 위치", f"{fg['qqq_gap']:+.2f}%", help="나스닥 장기 이평선 대비 현재가 위치")
             c1,c2 = st.columns(2)
-            c1.metric("SPY TD 매도/매수", f"{fg['spy_td_sell']} / {fg['spy_td_buy']}")
-            c2.metric("QQQ TD 매도/매수", f"{fg['qqq_td_sell']} / {fg['qqq_td_buy']}")
+            c1.metric("S&P500 패턴 카운트", f"매도 {fg['spy_td_sell']} / 매수 {fg['spy_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
+            c2.metric("나스닥 패턴 카운트", f"매도 {fg['qqq_td_sell']} / 매수 {fg['qqq_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
             if fg_m and "error" not in fg_m:
-                c1.metric("S&P500 월간Osc", fg_m["spx_osc"], f"{'🟢' if fg_m['spx_osc']>0 else '🔴'} {fg_m['spx_sentiment']}")
-                c2.metric("NASDAQ 월간Osc", fg_m["ndx_osc"], f"{'🟢' if fg_m['ndx_osc']>0 else '🔴'} {fg_m['ndx_sentiment']}")
+                c1.metric("S&P500 월간 심리", fg_m["spx_osc"], f"{'🟢' if fg_m['spx_osc']>0 else '🔴'} {fg_m['spx_sentiment']}", help="월봉 기준 공포·탐욕 오실레이터 (중장기 시각)")
+                c2.metric("나스닥 월간 심리", fg_m["ndx_osc"], f"{'🟢' if fg_m['ndx_osc']>0 else '🔴'} {fg_m['ndx_sentiment']}", help="월봉 기준 공포·탐욕 오실레이터 (중장기 시각)")
             if fg.get("chart"):
                 with st.expander("📈 오실레이터 차트 (최근 6개월)"):
                     ch=fg["chart"]
@@ -2324,33 +2342,34 @@ with tab1:
         st.divider()
 
         # ── 3. 코포크 + ZBT ──
-        st.markdown('<p class="zone-header">📊 코포크 · ZBT</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📈 중장기 추세 지표</p>', unsafe_allow_html=True)
+        st.caption("코포크: 중장기 추세 지표 — 양수(+)이고 상승 중이면 매수 유리한 구간")
         _cp1, _cp2, _cp3 = st.columns([2,2,1])
         with _cp1:
-            st.caption("표준 (ROC 11/14개월, EMA 10)")
+            st.caption("표준 코포크 (중장기)")
             if coppock and "error" not in coppock:
                 cols=st.columns(len(coppock))
                 for i,(lbl,v) in enumerate(coppock.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl,f"{'🟢' if v['pos'] else '🔴'} {v['value']}",f"{arr} {v['trend']}")
+                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
         with _cp2:
-            st.caption("빠른버전 (ROC 4/6개월, MA 3)")
+            st.caption("빠른 코포크 (단기)")
             if coppock_fast and "error" not in coppock_fast:
                 cols=st.columns(len(coppock_fast))
                 for i,(lbl,v) in enumerate(coppock_fast.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl,f"{'🟢' if v['pos'] else '🔴'} {v['value']}",f"{arr} {v['trend']}")
+                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
         with _cp3:
-            st.caption("ZBT 시장폭")
+            st.caption("반등 신호(ZBT)")
             if zbt and "error" not in zbt:
-                st.metric("ZBT", f"{zbt['zbt']:.3f}", "🟢 신호!" if zbt.get("signal") else "⏳")
-                st.metric("최근최저", f"{zbt['prev_min']:.3f}")
-                if zbt.get("vix"): st.metric("VIX", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️")
+                st.metric("ZBT 신호", "🟢 발생!" if zbt.get("signal") else "⏳ 대기", f"수치: {zbt['zbt']:.3f}", help="급락 후 반등 포착 신호. 발생 시 단기 저점 가능성")
+                if zbt.get("vix"): st.metric("변동성(VIX)", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️ 불안", help="VIX: 시장 공포 지수. 20 이하면 안정, 30 이상이면 공포 구간")
 
         st.divider()
 
         # ── 4. RS 상위 종목 ──
-        st.markdown('<p class="zone-header">🏆 상대강도 상위</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏆 강한 종목 순위 (상대강도 상위)</p>', unsafe_allow_html=True)
+        st.caption("같은 기간 다른 종목보다 더 많이 오른 종목 순위. 강한 종목이 계속 강한 경향이 있음")
         c1,c2 = st.columns(2)
         with c1:
             st.caption("S&P500 Top 10")
@@ -2370,14 +2389,15 @@ with tab1:
         st.divider()
 
         # ── 5. 섹터 ETF RS ──
-        st.markdown('<p class="zone-header">🏭 미국 섹터 ETF 상대강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 미국 업종별 강도</p>', unsafe_allow_html=True)
+        st.caption("🟢 강세(70↑) = 지금 돈이 몰리는 업종 / 🔴 약세(50↓) = 자금이 빠지는 업종")
         if us_sector and "error" not in us_sector:
             df_s=pd.DataFrame(us_sector["sectors"])
             df_s["강도"]=df_s["norm_rs"].apply(lambda x:"🟢 강세" if x>=70 else ("🟡 중립" if x>=50 else "🔴 약세"))
-            st.dataframe(df_s.rename(columns={"ticker":"티커","name":"섹터","norm_rs":"RS","rs_raw":"RS원시","risk_adj":"변동성모멘텀","강도":"강도"})[["티커","섹터","RS","변동성모멘텀","강도"]],
+            st.dataframe(df_s.rename(columns={"ticker":"티커","name":"업종","norm_rs":"강도점수(0~100)","risk_adj":"변동성조정","강도":"판정"})[["티커","업종","강도점수(0~100)","판정"]],
                 use_container_width=True, hide_index=True,
-                column_config={"RS":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
-            with st.expander("📊 섹터 RS 차트"):
+                column_config={"강도점수(0~100)":st.column_config.ProgressColumn("강도점수(0~100)",min_value=0,max_value=100,format="%.1f")})
+            with st.expander("📊 업종별 강도 차트"):
                 st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True)
         elif us_sector: st.error(us_sector.get("error"))
 
@@ -2414,12 +2434,25 @@ with tab2:
     _today_str = _kst.strftime("%Y-%m-%d")
     _auto_ran_key = f"kr_auto_ran_{_today_str}"
     if _is_after_close and _is_weekday and not st.session_state.get(_auto_ran_key):
-        st.info("장 마감 후입니다. **▶ 국내 지표 전체 실행** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
+        st.info("장 마감 후입니다. **▶ 국내 시장 분석 시작** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
 
-    st.markdown('<p class="zone-header">자동 시장 스캔</p>', unsafe_allow_html=True)
+    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+        st.markdown("""
+| 지표 | 한 줄 설명 |
+|------|-----------|
+| **수급 오실레이터** | 외국인·기관의 매수/매도 강도. **양수(+) = 사는 힘이 강함** / 음수(-) = 파는 힘이 강함 |
+| **RS (상대강도)** | 다른 ETF 대비 상대적 강도. **70점 이상이면 강세** / 50점 이하면 약세 |
+| **빈집 주도주** | 주도 업종 중 아직 덜 오른 종목. 주도주가 급등한 뒤 소외됐다가 합류하는 종목을 찾는 전략 |
+| **임펄스** | 단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립 |
+| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
+| **CMF** | 자금 흐름 지표. **양수(+) = 자금 유입(매수 우세)** / 음수(-) = 자금 유출(매도 우세) |
+| **오실레이터** | 기준선(0) 위면 상승 추세, 아래면 하락 추세를 나타내는 지표 |
+""")
+
+    st.markdown('<p class="zone-header">시장 스캔</p>', unsafe_allow_html=True)
 
     # 자동 새로고침으로 재진입하거나 버튼 클릭 시 실행
-    _should_run = st.button("▶ 국내 지표 전체 실행", type="primary", use_container_width=True, key="kr_run")
+    _should_run = st.button("▶ 국내 시장 분석 시작", type="primary", use_container_width=True, key="kr_run")
     if _should_run or (_auto_refresh_on and _is_after_close and _is_weekday):
         st.session_state[_auto_ran_key] = True
         prog=st.progress(0, text="📊 코스피/코스닥 수집 중...")
@@ -2463,7 +2496,7 @@ with tab2:
         st.divider()
 
         # ── 업종 강세/약세 ──
-        st.markdown('<p class="zone-header">🏭 업종 강세 / 약세</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 오늘 강한 업종 / 약한 업종</p>', unsafe_allow_html=True)
         if sector and "error" not in sector:
             c1,c2=st.columns(2)
             with c1:
@@ -2479,7 +2512,8 @@ with tab2:
         st.divider()
 
         # ── 수급 오실레이터 ──
-        st.markdown('<p class="zone-header">💹 수급 오실레이터</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">💹 외국인·기관 수급 강도</p>', unsafe_allow_html=True)
+        st.caption("양수(+) = 외국인·기관이 사는 힘이 강함 / 음수(-) = 파는 힘이 강함")
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
             st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
@@ -2495,7 +2529,8 @@ with tab2:
         st.divider()
 
         # ── 한국 ETF RS ──
-        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 상대강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 강도 순위</p>', unsafe_allow_html=True)
+        st.caption("🟢 강세(70↑) = 지금 자금이 몰리는 ETF / 70점 이상 ETF 업종 위주로 종목 탐색 추천")
         if kr_etf and "error" not in kr_etf:
             show=kr_etf.get("strong") or kr_etf.get("all",[])[:10]
             if show:
@@ -2524,7 +2559,8 @@ with tab2:
 
         # ── 빈집 주도주 ──
         bz=binzip or {}; bl=bz.get("binzip",[]); ss=" + ".join(bz.get("sectors",[])) or "주도업종"
-        st.markdown(f'<p class="zone-header">🏠 빈집 주도주 [{ss}]</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="zone-header">🏠 아직 덜 오른 주도주 (빈집) [{ss}]</p>', unsafe_allow_html=True)
+        st.caption("주도 업종이 올랐는데 아직 소외된 종목 → '빈집'이 채워지며 따라 오를 가능성 있는 종목")
         if bl:
             df_bz=pd.DataFrame(bl)[["name","code","price","rs60","rel20"]]
             df_bz.columns=["종목명","코드","현재가","60일RS(%)","20일눌림(%)"]
@@ -2539,7 +2575,8 @@ with tab2:
     st.divider()
 
     # ── 한국 개별종목 RS ──
-    st.markdown('<p class="zone-header">📈 개별종목 RS</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📈 강한 종목 순위 (개별종목 상대강도)</p>', unsafe_allow_html=True)
+    st.caption("같은 기간 코스피·코스닥 전체 대비 더 많이 오른 종목 순위. 70점 이상이면 강세")
     rs_xl_file = st.file_uploader(
         "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
         help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
@@ -2596,7 +2633,8 @@ with tab2:
     st.divider()
 
     # ── 한국 ETF RS ──
-    st.markdown('<p class="zone-header">📊 한국 ETF RS</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📊 한국 ETF 강도 순위 (정밀)</p>', unsafe_allow_html=True)
+    st.caption("Excel 파일 업로드 시 더 정확한 데이터로 계산 / 없으면 자동으로 수집")
     etf_rs_xl_file = st.file_uploader(
         "etf상대강도데이터.xlsx 업로드 (선택 — 없으면 자동 수집)", type=["xlsx"], key="etf_rs_xl_file",
         help="업로드 시 로컬 Excel 데이터 우선 사용 / 없으면 yfinance로 자동 계산"
@@ -2658,7 +2696,8 @@ with tab2:
     st.divider()
 
     # ── 한국 F&G 오실레이터 ──
-    st.markdown('<p class="zone-header">😨 한국 F&G 오실레이터</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">😨 한국 공포·탐욕 오실레이터</p>', unsafe_allow_html=True)
+    st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)  |  자동: 참고용 / Excel: 정밀 분석")
     st.caption("자동(참고용): 무료 대체지표로 방향성만 확인  |  Excel(정밀): 원본 VKOSPI·국채선물·P/C ATM")
     if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
             with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
@@ -2944,8 +2983,22 @@ with tab2:
 # 탭 3: 종목 분석
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    st.markdown('<p class="zone-header">🎯 매수 타점 통계 분석</p>', unsafe_allow_html=True)
-    st.caption("1년 데이터 기반 — 고가/저가/시가 평균 괴리율 (지정가 매수 참고용)")
+    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+        st.markdown("""
+| 지표 | 한 줄 설명 |
+|------|-----------|
+| **CMF (자금흐름)** | 양수(+) = 자금 유입(매수 우세) / 음수(-) = 자금 유출(매도 우세) |
+| **임펄스** | 단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립 |
+| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
+| **MA10 (10주 이평)** | 최근 10주 평균 가격. 현재가가 이 위에 있으면 중기 상승추세 |
+| **시가→저가 낙폭** | 장 시작 후 최대 얼마나 내려갔는지 평균. 지정가 매수 시 이 수치만큼 낮게 설정 참고 |
+| **고가→종가 하락** | 장중 최고점에서 종가까지 평균 낙폭. 고점 근처 추격 매수 위험도 |
+| **수급 오실레이터** | 외국인·기관 매수/매도 강도. 양수=사는 힘, 음수=파는 힘 |
+| **컨센서스** | 증권사 애널리스트들의 실적 전망치. 전망이 올라가는 종목이 주가도 오르는 경향 |
+""")
+
+    st.markdown('<p class="zone-header">🎯 지정가 매수 타점 분석</p>', unsafe_allow_html=True)
+    st.caption("1년 데이터 기반 — 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
 
     _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()], key=lambda x: x[0])
     sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
