@@ -81,12 +81,11 @@ div[data-testid="metric-container"] {
 
 /* ── 섹션 헤더 (zone-header) ── */
 .zone-header {
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    color: #7d8590;
-    text-transform: uppercase;
-    margin: 1.8rem 0 0.8rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #c9d1d9;
+    margin: 1.8rem 0 0.6rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid #21262d;
     display: block;
@@ -139,6 +138,25 @@ div[data-testid="stFileUploader"] {
     border-radius: 8px;
 }
 div[data-testid="stFileUploader"] label { font-size: 0.82rem !important; color: #7d8590; }
+/* 모바일: 업로더 내부 드래그영역 세로 정렬 */
+@media (max-width: 640px) {
+    div[data-testid="stFileUploader"] section {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 8px !important;
+    }
+    div[data-testid="stFileUploader"] section > div {
+        width: 100% !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] {
+        padding: 12px !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] {
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center;
+    }
+}
 
 /* ── 익스팬더 ── */
 div[data-testid="stExpander"] {
@@ -163,6 +181,16 @@ div[data-testid="stToggle"] label { font-size: 0.875rem; }
 ::-webkit-scrollbar-track { background: #0d1117; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* ── 등급 뱃지 ── */
+.badge-bz   { background:#2d1f3d; color:#c792ea; border:1px solid #9c59d1; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:700; margin:2px; display:inline-block; }
+.badge-star { background:#1f3a2a; color:#3fb950; border:1px solid #3fb950; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:700; margin:2px; display:inline-block; }
+.badge-good { background:#1a2c45; color:#79c0ff; border:1px solid #388bfd; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:600; margin:2px; display:inline-block; }
+.badge-watch { background:#2d2a1e; color:#e3b341; border:1px solid #d29922; border-radius:12px; padding:3px 12px; font-size:0.80rem; font-weight:500; margin:2px; display:inline-block; }
+
+/* ── 섹터 태그 ── */
+.sector-tag { display:inline-block; background:#21262d; border:1px solid #30363d; border-radius:6px; padding:3px 10px; margin:2px; font-size:0.80rem; color:#8b949e; }
+.sector-tag.on { background:#1f3a2a; border-color:#3fb950; color:#3fb950; font-weight:600; }
 </style>""", unsafe_allow_html=True)
 
 _days = ["월","화","수","목","금","토","일"]
@@ -176,7 +204,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab1, tab2, tab3 = st.tabs(["🌎 미국 시장", "🇰🇷 국내 시장", "🔍 종목 분석"])
+tab4, tab2, tab3, tab1 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
@@ -290,6 +318,29 @@ TICKER_NAMES = {
     "277810.KS":"레인보우로보틱스","454910.KS":"두산로보틱스","090360.KS":"로보스타",
     "263750.KQ":"펄어비스","036030.KQ":"KG이니시스","058470.KQ":"리노공업",
     "214150.KQ":"클래시스","091990.KQ":"셀트리온헬스케어","323410.KS":"카카오뱅크",
+    # ── 코스닥 반도체/장비 ──
+    "042700.KQ":"한미반도체","240810.KQ":"원익IPS","039030.KQ":"이오테크닉스",
+    "089030.KQ":"테크윙","095340.KQ":"ISC","319660.KQ":"피에스케이홀딩스",
+    "085660.KQ":"넥스틴","064760.KQ":"티씨케이","218410.KQ":"RFHIC",
+    "211050.KQ":"이수페타시스","076410.KQ":"티엘비","084370.KQ":"유진테크",
+    "036710.KQ":"심텍","183300.KQ":"코미코","008060.KQ":"대덕전자",
+    "140860.KQ":"파크시스템스","102710.KQ":"이엔에프테크놀로지",
+    "195870.KQ":"해성디에스","067310.KQ":"하나마이크론",
+    "007810.KS":"코리아써키트","357780.KQ":"솔브레인",
+    # ── 코스닥 바이오/헬스케어 ──
+    "028300.KQ":"HLB","141080.KQ":"리가켐바이오","009420.KQ":"한올바이오파마",
+    "298380.KQ":"에이비엘바이오","039200.KQ":"오스코텍","214450.KQ":"파마리서치",
+    "226950.KQ":"올릭스","115180.KQ":"큐리언트","214270.KQ":"파미셀",
+    "195940.KQ":"HK이노엔","241710.KQ":"코스메카코리아","476000.KQ":"달바글로벌",
+    "278470.KQ":"에이피알","108490.KQ":"로보티즈",
+    "950200.KQ":"프로티나","067630.KQ":"HLB생명과학",
+    # ── 코스닥 기타 ──
+    "012510.KQ":"더존비즈온","030190.KQ":"NICE평가정보",
+    "293490.KQ":"카카오게임즈","122870.KQ":"와이지엔터테인먼트",
+    "194370.KQ":"제이에스코퍼레이션","093370.KQ":"후성",
+    "077970.KQ":"STX엔진","429530.KQ":"HD현대마린엔진",
+    "082740.KQ":"한화엔진","161890.KQ":"한국콜마",
+    "032350.KQ":"롯데관광개발","691610.KQ":"지투지바이오",
 }
 
 US_SECTOR_ETFS = {
@@ -713,7 +764,7 @@ def get_binzip_stocks(supply_data=None, top_n=5):
 def get_kr_etf_rs():
     try:
         tks=list(KOREA_ETFS.keys())
-        raw=yf.download(tks+["^KS11"],period="2y",auto_adjust=True,progress=False)
+        raw=yf.download(tks+["^KS11"],period="1y",auto_adjust=True,progress=False)
         if raw.empty: return {"error":"데이터 없음"}
         data=raw["Close"] if isinstance(raw.columns,pd.MultiIndex) else raw
         if "^KS11" not in data.columns: return {"error":"KOSPI 없음"}
@@ -721,18 +772,14 @@ def get_kr_etf_rs():
         for t in tks:
             if t not in data.columns: continue
             etf=data[t].dropna(); common=etf.index.intersection(kospi.index)
-            if len(common)<60: continue
+            if len(common)<57: continue
             rel=etf.loc[common]/kospi.loc[common]
-            rs_vals=[]
-            for win in [60,120,250]:
-                if len(rel)<win: continue
-                ma=rel.rolling(win).mean(); rs=((rel/ma)-1)*100
-                if not rs.dropna().empty: rs_vals.append(float(rs.dropna().iloc[-1]))
-            rs_raw=round(np.mean(rs_vals),2) if rs_vals else 0
-            norm_rs=round(100*(1/(1+np.exp(-rs_raw/12))),1)
-            mom3=float(etf.pct_change().rolling(63).mean().iloc[-1]) if len(etf)>=63 else 0
-            vol3=float(etf.pct_change().rolling(63).std().iloc[-1]) if len(etf)>=63 else 1
-            results.append({"ticker":t,"name":KOREA_ETFS.get(t,t),"norm_rs":norm_rs,"risk_adj":round((mom3/vol3)*100,2) if vol3>0 else 0})
+            ma=rel.rolling(52,min_periods=52).mean()
+            rs=((rel/ma)-1)*100
+            rs_val=rs.dropna().iloc[-1] if not rs.dropna().empty else np.nan
+            if np.isnan(rs_val): continue
+            norm_rs=round(100*(1/(1+np.exp(-float(rs_val)/12))),1)
+            results.append({"ticker":t,"name":KOREA_ETFS.get(t,t),"norm_rs":norm_rs,"rs_raw":round(float(rs_val),1)})
         results.sort(key=lambda x:x["norm_rs"],reverse=True)
         strong=[r for r in results if r["norm_rs"]>=70]
         return {"all":results,"strong":strong[:10] if strong else results[:5]}
@@ -873,6 +920,77 @@ def get_kr_fg_auto():
 # ─────────────────────────────────────────────────────────────────────────────
 KR_STOCKS = {k: v for k, v in TICKER_NAMES.items() if k.endswith(".KS") or k.endswith(".KQ")}
 
+# 종목 → 섹터 매핑 (섹터 ETF RS로 강한 섹터 필터링에 사용)
+STOCK_SECTOR = {
+    # 반도체 (KODEX 반도체 091160.KS)
+    "005930.KS":"반도체","000660.KS":"반도체","009150.KS":"반도체","011070.KS":"반도체",
+    "042700.KQ":"반도체","240810.KQ":"반도체","039030.KQ":"반도체","089030.KQ":"반도체",
+    "095340.KQ":"반도체","319660.KQ":"반도체","085660.KQ":"반도체","064760.KQ":"반도체",
+    "084370.KQ":"반도체","036710.KQ":"반도체","183300.KQ":"반도체","008060.KQ":"반도체",
+    "140860.KQ":"반도체","102710.KQ":"반도체","195870.KQ":"반도체","067310.KQ":"반도체",
+    "007810.KS":"반도체","357780.KQ":"반도체","218410.KQ":"반도체","211050.KQ":"반도체",
+    "076410.KQ":"반도체","058470.KQ":"반도체",
+    # 방산 (TIGER 우주방산 463250.KS / PLUS K방산 449450.KS)
+    "012450.KS":"방산","047810.KS":"방산","079550.KS":"방산",
+    "082740.KQ":"방산","077970.KQ":"방산","429530.KQ":"방산",
+    # 조선/중공업 (SOL 조선TOP3 466920.KS / TIGER 200중공업 139230.KS)
+    "009540.KS":"조선","329180.KS":"조선","010140.KS":"조선","042660.KS":"조선",
+    "267260.KS":"조선","298040.KS":"조선","010120.KS":"조선","028050.KS":"조선",
+    "267250.KS":"조선",
+    # 2차전지 (TIGER 2차전지테마 305540.KS)
+    "373220.KS":"2차전지","006400.KS":"2차전지","051910.KS":"2차전지",
+    "003670.KS":"2차전지","009830.KS":"2차전지","011790.KS":"2차전지",
+    "086520.KQ":"2차전지","247540.KQ":"2차전지","066970.KQ":"2차전지","278280.KQ":"2차전지",
+    # 바이오 (KODEX 바이오 244580.KS / TIGER 바이오TOP10 364970.KS)
+    "207940.KS":"바이오","068270.KS":"바이오","128940.KS":"바이오",
+    "326030.KS":"바이오","145020.KS":"바이오",
+    "028300.KQ":"바이오","141080.KQ":"바이오","009420.KQ":"바이오",
+    "298380.KQ":"바이오","039200.KQ":"바이오","214450.KQ":"바이오",
+    "226950.KQ":"바이오","115180.KQ":"바이오","195940.KQ":"바이오",
+    "067630.KQ":"바이오","950200.KQ":"바이오","108490.KQ":"바이오",
+    "000100.KS":"바이오",
+    # K뷰티/소비재 (HANARO K뷰티 479850.KS)
+    "090430.KS":"K뷰티","241710.KQ":"K뷰티","476000.KQ":"K뷰티",
+    "278470.KQ":"K뷰티","214150.KQ":"K뷰티","161890.KS":"K뷰티","004370.KS":"K뷰티",
+    "097950.KS":"K뷰티",
+    # 로봇 (KODEX K-로봇 445290.KS)
+    "277810.KS":"로봇","454910.KS":"로봇","090360.KS":"로봇","108490.KQ":"로봇",
+    # 자동차 (KODEX 자동차 091180.KS)
+    "005380.KS":"자동차","000270.KS":"자동차","012330.KS":"자동차",
+    "066570.KS":"자동차","011210.KS":"자동차","086280.KS":"자동차",
+    # 원전/에너지 (ACE 원자력테마 433500.KS)
+    "034020.KS":"원전","015760.KS":"원전","036460.KS":"원전",
+    # 게임/엔터 (KODEX 게임산업 300950.KS)
+    "036570.KS":"게임/엔터","259960.KS":"게임/엔터","251270.KS":"게임/엔터",
+    "352820.KS":"게임/엔터","263750.KQ":"게임/엔터","293490.KQ":"게임/엔터",
+    "035900.KQ":"게임/엔터","041510.KQ":"게임/엔터","122870.KQ":"게임/엔터",
+    # 금융 (KODEX 은행 091170.KS)
+    "105560.KS":"금융","055550.KS":"금융","086790.KS":"금융",
+    "316140.KS":"금융","138040.KS":"금융","032830.KS":"금융","323410.KS":"금융",
+    # 통신 (기타)
+    "017670.KS":"통신","030200.KS":"통신","032640.KS":"통신",
+    # IT/플랫폼
+    "035420.KS":"IT플랫폼","035720.KS":"IT플랫폼","012510.KQ":"IT플랫폼",
+    "030190.KQ":"IT플랫폼",
+}
+
+# 섹터 → 대표 ETF ticker (RS 계산용)
+SECTOR_ETF_MAP = {
+    "반도체":  "091160.KS",   # KODEX 반도체
+    "방산":    "463250.KS",   # TIGER 우주방산
+    "조선":    "466920.KS",   # SOL 조선TOP3
+    "2차전지": "305540.KS",   # TIGER 2차전지테마
+    "바이오":  "244580.KS",   # KODEX 바이오
+    "K뷰티":   "479850.KS",   # HANARO K뷰티
+    "로봇":    "445290.KS",   # KODEX K-로봇
+    "자동차":  "091180.KS",   # KODEX 자동차
+    "원전":    "433500.KS",   # ACE 원자력테마
+    "게임/엔터":"300950.KS",   # KODEX 게임산업
+    "금융":    "091170.KS",   # KODEX 은행
+    "통신":    "017670.KS",   # SK텔레콤 (대표 종목으로 대체)
+    "IT플랫폼":"035420.KS",   # NAVER (대표 종목으로 대체)
+}
+
 # 주요 한국 ETF (KRX 코드 → 이름)  yfinance ticker = code + ".KS"
 KR_ETF_CODES = {
     "069500":"KODEX 200",           "102110":"TIGER 200",
@@ -929,56 +1047,36 @@ def get_kr_stock_rs(top_n=15):
     except Exception as e: return {"error":str(e)}
 
 def calc_kr_stock_rs_excel(df_close, top_n=15):
-    """종목상대강도데이터.xlsx 종가 시트로 Mansfield RS 계산 (log-ratio, 60/120/250d)"""
+    """종가 시트 → Mansfield RS: rel = stock/KOSPI, RS = (rel/MA52 - 1) × 100"""
     try:
         date_col = df_close.columns[0]
         df = df_close.copy()
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-        df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
-        df = df.set_index(date_col)
+        df = df.dropna(subset=[date_col]).sort_values(date_col).set_index(date_col)
         bench_col = next((c for c in df.columns if '코스피' in str(c)), None)
         if bench_col is None:
             return {"error": "코스피 벤치마크 컬럼 없음"}
         kospi = pd.to_numeric(df[bench_col], errors='coerce').where(lambda x: x > 0, np.nan)
         name_to_ticker = {v: k for k, v in KR_STOCKS.items()}
-        stock_cols = [c for c in df.columns if c != bench_col]
-        RS_WINDOWS = [60, 120, 250]
         all_results = []
-        for col in stock_cols:
+        for col in df.columns:
+            if col == bench_col:
+                continue
             s = pd.to_numeric(df[col], errors='coerce').where(lambda x: x > 0, np.nan)
-            common = s.dropna().index.intersection(kospi.dropna().index)
-            if len(common) < 63:
+            idx = s.dropna().index.intersection(kospi.dropna().index)
+            if len(idx) < 57:
                 continue
-            sc = s.loc[common]; kc = kospi.loc[common]
+            sc = s.loc[idx]; kc = kospi.loc[idx]
             rel = sc / kc
-            log_rel = np.log(rel.replace(0, np.nan))
-            raw_vals = []
-            for win in RS_WINDOWS:
-                if len(log_rel.dropna()) < win:
-                    continue
-                ma = log_rel.rolling(win, min_periods=win).mean()
-                rs_s = (log_rel - ma).dropna()
-                if not rs_s.empty:
-                    raw_vals.append(float(rs_s.iloc[-1] * 100))
-            if not raw_vals:
+            ma = rel.rolling(52, min_periods=52).mean()
+            rs = ((rel / ma) - 1) * 100
+            rs_val = rs.dropna().iloc[-1] if not rs.dropna().empty else np.nan
+            if np.isnan(rs_val):
                 continue
-            rs_avg = float(np.mean(raw_vals))
-            norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
-            # risk-adjusted momentum (3m/6m/12m)
-            r3 = sc.pct_change(fill_method=None).rolling(63).mean().iloc[-1]
-            v3 = sc.pct_change(fill_method=None).rolling(63).std().iloc[-1]
-            r6 = sc.pct_change(fill_method=None).rolling(126).mean().iloc[-1]
-            v6 = sc.pct_change(fill_method=None).rolling(126).std().iloc[-1]
-            r12 = sc.pct_change(fill_method=None).rolling(252).mean().iloc[-1]
-            v12 = sc.pct_change(fill_method=None).rolling(252).std().iloc[-1]
-            risk_adj = float(np.nanmean([
-                r3/v3 if v3 and v3 > 0 else np.nan,
-                r6/v6 if v6 and v6 > 0 else np.nan,
-                r12/v12 if v12 and v12 > 0 else np.nan
-            ])) * 100
-            ticker = name_to_ticker.get(str(col), str(col))
-            all_results.append({"ticker": ticker, "name": str(col), "norm_rs": norm_rs,
-                                 "rs_raw": round(rs_avg, 1), "risk_adj": round(risk_adj, 2)})
+            norm_rs = round(100 / (1 + np.exp(-float(rs_val) / 12)), 1)
+            ticker = name_to_ticker.get(str(col), "")
+            all_results.append({"ticker": ticker, "name": str(col),
+                                 "norm_rs": norm_rs, "rs_raw": round(float(rs_val), 1)})
         if not all_results:
             return {"error": "RS 계산 결과 없음"}
         all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
@@ -988,52 +1086,33 @@ def calc_kr_stock_rs_excel(df_close, top_n=15):
         return {"error": str(e)}
 
 def calc_kr_etf_rs_excel(df_data, top_n=15):
-    """etf상대강도데이터.xlsx 데이터 시트로 ETF RS 계산 (linear Mansfield RS, 60/120/250d)"""
+    """ETF 데이터 시트 → Mansfield RS: rel = ETF/KOSPI, RS = (rel/MA52 - 1) × 100"""
     try:
         date_col = df_data.columns[0]
         df = df_data.copy()
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-        df = df.dropna(subset=[date_col]).sort_values(date_col).reset_index(drop=True)
-        df = df.set_index(date_col)
+        df = df.dropna(subset=[date_col]).sort_values(date_col).set_index(date_col)
         bench_col = next((c for c in df.columns if '코스피' in str(c)), None)
         if bench_col is None:
             return {"error": "코스피 벤치마크 컬럼 없음"}
         kospi = pd.to_numeric(df[bench_col], errors='coerce').where(lambda x: x > 0, np.nan)
-        etf_cols = [c for c in df.columns if c != bench_col]
-        RS_WINDOWS = [60, 120, 250]
         all_results = []
-        for col in etf_cols:
+        for col in df.columns:
+            if col == bench_col:
+                continue
             s = pd.to_numeric(df[col], errors='coerce').where(lambda x: x > 0, np.nan)
-            common = s.dropna().index.intersection(kospi.dropna().index)
-            if len(common) < 60:
+            idx = s.dropna().index.intersection(kospi.dropna().index)
+            if len(idx) < 57:
                 continue
-            sc = s.loc[common]; kc = kospi.loc[common]
+            sc = s.loc[idx]; kc = kospi.loc[idx]
             rel = sc / kc
-            raw_vals = []
-            for win in RS_WINDOWS:
-                if len(rel.dropna()) < win:
-                    continue
-                ma = rel.rolling(win, min_periods=win).mean()
-                rs_s = ((rel / ma) - 1).dropna()
-                if not rs_s.empty:
-                    raw_vals.append(float(rs_s.iloc[-1] * 100))
-            if not raw_vals:
+            ma = rel.rolling(52, min_periods=52).mean()
+            rs = ((rel / ma) - 1) * 100
+            rs_val = rs.dropna().iloc[-1] if not rs.dropna().empty else np.nan
+            if np.isnan(rs_val):
                 continue
-            rs_avg = float(np.mean(raw_vals))
-            norm_rs = round(100 * (1 / (1 + np.exp(-rs_avg / 12))), 1)
-            r3 = sc.pct_change(fill_method=None).rolling(63).mean().iloc[-1]
-            v3 = sc.pct_change(fill_method=None).rolling(63).std().iloc[-1]
-            r6 = sc.pct_change(fill_method=None).rolling(126).mean().iloc[-1]
-            v6 = sc.pct_change(fill_method=None).rolling(126).std().iloc[-1]
-            r12 = sc.pct_change(fill_method=None).rolling(252).mean().iloc[-1]
-            v12 = sc.pct_change(fill_method=None).rolling(252).std().iloc[-1]
-            risk_adj = float(np.nanmean([
-                r3/v3 if v3 and v3 > 0 else np.nan,
-                r6/v6 if v6 and v6 > 0 else np.nan,
-                r12/v12 if v12 and v12 > 0 else np.nan
-            ])) * 100
-            all_results.append({"name": str(col), "norm_rs": norm_rs,
-                                 "rs_raw": round(rs_avg, 1), "risk_adj": round(risk_adj, 2)})
+            norm_rs = round(100 / (1 + np.exp(-float(rs_val) / 12)), 1)
+            all_results.append({"name": str(col), "norm_rs": norm_rs, "rs_raw": round(float(rs_val), 1)})
         if not all_results:
             return {"error": "ETF RS 계산 결과 없음"}
         all_results.sort(key=lambda x: x["norm_rs"], reverse=True)
@@ -1044,10 +1123,10 @@ def calc_kr_etf_rs_excel(df_data, top_n=15):
 
 @st.cache_data(ttl=timedelta(hours=4))
 def get_kr_stock_rs_auto(top_n=15):
-    """yfinance 배치 다운로드 + Mansfield log-ratio RS — Excel과 동일 로직, 자동 실행"""
+    """yfinance 배치 다운로드 + Mansfield RS: rel=stock/KOSPI, RS=(rel/MA52-1)×100"""
     import datetime as _dt
     end   = _dt.date.today()
-    start = end - _dt.timedelta(days=420)
+    start = end - _dt.timedelta(days=280)
     tks   = list(KR_STOCKS.keys())
     all_prices = {}
     try:
@@ -1078,10 +1157,10 @@ def get_kr_stock_rs_auto(top_n=15):
 
 @st.cache_data(ttl=timedelta(hours=4))
 def get_kr_etf_rs_auto(top_n=15):
-    """yfinance 배치 다운로드로 KR_ETF_CODES RS 계산 — Excel 없이 자동 실행"""
+    """yfinance 배치 다운로드 + Mansfield RS: rel=ETF/KOSPI, RS=(rel/MA52-1)×100"""
     import datetime as _dt
     end   = _dt.date.today()
-    start = end - _dt.timedelta(days=420)
+    start = end - _dt.timedelta(days=280)
     codes = list(KR_ETF_CODES.keys())
     tickers_yf = [c + ".KS" for c in codes]
     all_prices = {}
@@ -1111,6 +1190,240 @@ def get_kr_etf_rs_auto(top_n=15):
         return result
     except Exception as e:
         return {"error": str(e)}
+
+@st.cache_data(ttl=timedelta(hours=2))
+def get_composite_score(top_n=30):
+    """종합 점수: RS(35%) + 수급(35%) + 거래대금강도(30%) → 상위 종목 선별"""
+    import datetime as _dt
+    import concurrent.futures
+    from bs4 import BeautifulSoup as _BS
+
+    today = _dt.date.today()
+    end   = today
+    start = end - _dt.timedelta(days=280)
+
+    # ── 0. 섹터 ETF RS로 강한 섹터 선별 ──
+    sector_etf_tks = list(set(SECTOR_ETF_MAP.values()))
+    strong_sectors = set()
+    try:
+        _etf_raw = yf.download(sector_etf_tks + ["^KS11"], start=start, end=end,
+                               auto_adjust=True, progress=False)
+        if not _etf_raw.empty:
+            _ec = _etf_raw["Close"] if "Close" in _etf_raw.columns else _etf_raw
+            _ek = _ec["^KS11"].dropna()
+            for sector, etf_tk in SECTOR_ETF_MAP.items():
+                if etf_tk not in _ec.columns: continue
+                _es = _ec[etf_tk].dropna()
+                _idx = _es.index.intersection(_ek.index)
+                if len(_idx) < 57: continue
+                _rel = _es.loc[_idx] / _ek.loc[_idx]
+                _ma  = _rel.rolling(52, min_periods=52).mean()
+                _rv  = ((_rel / _ma) - 1) * 100
+                _rv  = _rv.dropna()
+                if _rv.empty: continue
+                _rs_val = float(_rv.iloc[-1])
+                if _rs_val > 0:   # KOSPI 대비 초과수익 = 강한 섹터
+                    strong_sectors.add(sector)
+    except Exception:
+        pass
+
+    # 강한 섹터 종목만 스크리닝 (매핑 없는 종목은 제외)
+    if strong_sectors:
+        tks = [t for t in KR_STOCKS if STOCK_SECTOR.get(t, "") in strong_sectors]
+    else:
+        tks = list(KR_STOCKS.keys())   # ETF 데이터 실패 시 전체
+
+    # ── 1. yfinance 배치 (가격 + 거래대금) ──
+    all_close = {}; all_turnover = {}
+    for i in range(0, len(tks), 50):
+        batch = tks[i:i+50]
+        try:
+            raw = yf.download(batch + ["^KS11"], start=start, end=end,
+                              auto_adjust=True, progress=False)
+            if raw.empty: continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                lv0 = raw.columns.get_level_values(0).unique().tolist()
+                if "Close" in lv0:
+                    close_df = raw["Close"]; vol_df = raw["Volume"]
+                else:
+                    close_df = pd.DataFrame({t: raw[t]["Close"] for t in batch + ["^KS11"] if t in lv0})
+                    vol_df   = pd.DataFrame({t: raw[t]["Volume"] for t in batch + ["^KS11"] if t in lv0})
+            else:
+                close_df = raw; vol_df = raw
+            if "^KS11" in close_df.columns:
+                all_close["^KS11"] = close_df["^KS11"]
+            for t in batch:
+                if t in close_df.columns:
+                    all_close[t] = close_df[t]
+                    if t in vol_df.columns:
+                        all_turnover[t] = vol_df[t] * close_df[t]
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+    if "^KS11" not in all_close or len(all_close) < 5:
+        return {"error": "가격 데이터 수집 실패 (yfinance)"}
+
+    kospi = all_close["^KS11"].where(lambda x: x > 0, np.nan)
+
+    # ── 2. RS 계산 (Mansfield, 0-100 정규화) ──
+    rs_scores = {}
+    for t in tks:
+        if t not in all_close: continue
+        s   = all_close[t].where(lambda x: x > 0, np.nan)
+        idx = s.dropna().index.intersection(kospi.dropna().index)
+        if len(idx) < 57: continue
+        rel = s.loc[idx] / kospi.loc[idx]
+        ma  = rel.rolling(52, min_periods=52).mean()
+        rs  = ((rel / ma) - 1) * 100
+        rv  = rs.dropna()
+        if rv.empty: continue
+        rs_scores[t] = round(100 / (1 + np.exp(-float(rv.iloc[-1]) / 12)), 1)
+
+    # ── 3. 거래대금 강도 (최근 5일 vs 52일 평균) ──
+    vol_raw = {}
+    for t in tks:
+        if t not in all_turnover: continue
+        s = all_turnover[t].replace(0, np.nan).dropna()
+        if len(s) < 57: continue
+        m5  = float(s.tail(5).mean())
+        m52 = float(s.rolling(52, min_periods=52).mean().dropna().iloc[-1])
+        if m52 > 0: vol_raw[t] = m5 / m52
+    vol_scores = {}
+    if vol_raw:
+        vol_scores = (pd.Series(vol_raw).rank(pct=True) * 100).round(1).to_dict()
+
+    # ── 4. 모멘텀 (20일·60일 수익률 합산, 가격 데이터 재활용) ──
+    mom_raw = {}
+    for t in tks:
+        if t not in all_close: continue
+        s = all_close[t].where(lambda x: x > 0, np.nan).dropna()
+        if len(s) < 62: continue
+        r20  = float(s.iloc[-1] / s.iloc[-21] - 1) * 100
+        r60  = float(s.iloc[-1] / s.iloc[-61] - 1) * 100
+        mom_raw[t] = r20 * 0.4 + r60 * 0.6   # 단기보다 중기에 더 가중
+    mom_scores = {}
+    if mom_raw:
+        mom_scores = (pd.Series(mom_raw).rank(pct=True) * 100).round(1).to_dict()
+
+    # ── 5. 52주 신고가 근접도 (현재가 / 52주 최고가) ──
+    high52_raw = {}
+    for t in tks:
+        if t not in all_close: continue
+        s = all_close[t].where(lambda x: x > 0, np.nan).dropna()
+        if len(s) < 60: continue
+        high52 = float(s.rolling(min(252, len(s))).max().iloc[-1])
+        if high52 > 0:
+            high52_raw[t] = float(s.iloc[-1]) / high52 * 100   # 100 = 신고가
+    high52_scores = {}
+    if high52_raw:
+        high52_scores = (pd.Series(high52_raw).rank(pct=True) * 100).round(1).to_dict()
+
+    # ── 6. 수급 — 네이버 파이낸스 기관+외국인 40일치 수집 (빈집 감지용) ──
+    _hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://finance.naver.com/",
+    }
+
+    def _fetch_supply(ticker):
+        """40일치 기관+외국인 순매수 수집 → (short5, long40) 반환"""
+        code = ticker.replace(".KS", "").replace(".KQ", "")
+        daily = []
+        try:
+            for pg in range(1, 3):
+                r = requests.get(
+                    f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
+                    headers=_hdrs, timeout=10)
+                if r.status_code != 200: break
+                soup = _BS(r.content, "html.parser", from_encoding="euc-kr")
+                tables = soup.find_all("table")
+                if len(tables) < 4: break
+                for row in tables[3].find_all("tr"):
+                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
+                        try:
+                            cp  = int(cells[1].replace(",", ""))
+                            iq  = int(cells[5].replace(",", "").replace("+", "") or "0")
+                            fq  = int(cells[6].replace(",", "").replace("+", "") or "0")
+                            if cp > 0:
+                                daily.append((iq + fq) * cp)   # 순매수대금 (음수=순매도)
+                                if len(daily) >= 40: break
+                        except Exception:
+                            pass
+                if len(daily) >= 40: break
+        except Exception:
+            pass
+        short5 = sum(daily[:5])  if len(daily) >= 5  else 0  # 최근 5일 (전환 감지)
+        long40 = sum(daily[:40]) if daily else 0              # 40일 누적 (빈집 수준)
+        return ticker, short5, long40
+
+    short5_raw = {}; long40_raw = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for tk, s5, l40 in pool.map(_fetch_supply, tks):
+            short5_raw[tk] = s5
+            long40_raw[tk] = l40
+
+    # 최근 5일 수급 백분위 (높을수록 현재 강하게 들어오는 중)
+    supply_scores = {}
+    if any(v != 0 for v in short5_raw.values()):
+        supply_scores = (pd.Series(short5_raw).rank(pct=True) * 100).round(1).to_dict()
+
+    # 빈집 감지: long40이 하위 30% (많이 팔린 상태) + 최근 5일 양수 (전환 시작)
+    binzip_set = set()
+    if long40_raw:
+        l40_pct = pd.Series(long40_raw).rank(pct=True)  # 낮을수록 빈집
+        for tk in tks:
+            is_empty  = l40_pct.get(tk, 1.0) <= 0.35    # 하위 35% = 빈집
+            is_inflow = short5_raw.get(tk, 0) > 0        # 최근 5일 순매수 양수 = 전환
+            if is_empty and is_inflow:
+                binzip_set.add(tk)
+
+    # ── 7. 종합 점수 합산 ──
+    # RS 25% + 수급(5일) 30% + 모멘텀 20% + 거래대금 15% + 신고가 10%
+    WEIGHTS = [("rs", 0.25), ("supply", 0.30), ("momentum", 0.20), ("volume", 0.15), ("high52", 0.10)]
+    score_maps = {"rs": rs_scores, "supply": supply_scores,
+                  "volume": vol_scores, "momentum": mom_scores, "high52": high52_scores}
+
+    all_tks = set(rs_scores) | set(vol_scores) | set(supply_scores)
+    results = []
+    for t in all_tks:
+        nm = KR_STOCKS.get(t, t)
+        vals = {k: score_maps[k].get(t) for k, _ in WEIGHTS}
+        parts, wts = [], []
+        for k, w in WEIGHTS:
+            if vals[k] is not None:
+                parts.append(vals[k]); wts.append(w)
+        if not parts: continue
+        score = round(sum(v * w for v, w in zip(parts, wts)) / sum(wts), 1)
+
+        rs_v  = vals["rs"]  or 0
+        sup_v = vals["supply"] or 0
+        is_bz = t in binzip_set
+
+        # 빈집전환이 최우선 — 수급 바닥에서 막 들어오는 종목
+        if is_bz:
+            grade = "🏚️ 빈집"
+        elif rs_v >= 65 and sup_v >= 65:
+            grade = "⭐ 강력"
+        elif rs_v >= 55 and sup_v >= 55:
+            grade = "✅ 유망"
+        elif rs_v >= 45 or sup_v >= 65:
+            grade = "👀 관심"
+        else:
+            grade = "─"
+
+        sector = STOCK_SECTOR.get(t, "기타")
+        results.append({"ticker": t, "name": nm, "score": score, "grade": grade,
+                         "sector": sector, "binzip": is_bz,
+                         "rs": vals["rs"], "supply": vals["supply"],
+                         "volume": vals["volume"], "momentum": vals["momentum"],
+                         "high52": vals["high52"]})
+
+    # 빈집전환 종목을 최상단으로, 나머지는 점수순
+    results.sort(key=lambda x: (not x["binzip"], -x["score"]))
+    return {"results": results[:top_n], "total": len(results),
+            "has_supply": bool(supply_scores), "strong_sectors": sorted(strong_sectors),
+            "binzip_count": len(binzip_set)}
 
 def calc_weekly_trend_excel(df_wk):
     """추세판별기(주간).xlsx DB 시트로 CMF/임펄스/TD 계산 (오프라인)"""
@@ -1972,23 +2285,18 @@ def _osc_bar_chart(dates, osc_vals, height=220):
 # 탭 1: 미국 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
-    st.caption("미국 장 마감 후 (한국 오전 6~7시) 실행 권장")
-
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
-        st.markdown("""
-| 지표 | 한 줄 설명 |
-|------|-----------|
-| **카나리아** | 시장 진입 신호. QQQ(나스닥)·TIP(물가채) 모멘텀이 모두 양수면 **공격(주식)**, 하나라도 음수면 **방어(현금·채권)** |
-| **BOFA 열기** | 시장 과열도 (0~10점). **7.5↑ 과열** / 5~7.5 경계 / 2.5~5 보통 / **2.5↓ 안전** |
-| **블러드** | 채권 스트레스 지수. 60일 평균 **위** = 안전, **아래** = 주의 |
-| **ZBT** | 급락 후 반등 포착 신호. **신호 발생 시** 단기 저점 가능성 높음 |
-| **공포·탐욕 오실레이터** | 시장 심리 지수. **양수(+) = 탐욕(과열 주의)** / **음수(-) = 공포(매수 기회)** |
-| **임펄스** | 단기 추세 방향. 🟢 강세 = 주가·MACD 모두 상승 / 🔴 약세 = 모두 하락 / 🔵 중립 |
-| **SuperMA 이격** | 20·60·120·200일 이평 평균 대비 현재가 위치. **양수 = 상승세**, 음수 = 조정권 |
-| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
-| **코포크** | 중장기 추세 지표. **양수(+)이고 상승 중** = 매수 유리 |
-| **상대강도(RS)** | 같은 기간 다른 종목보다 얼마나 더 올랐는지. **높을수록 강세** |
-""")
+    st.info("**지금 미국 주식을 사도 되는 타이밍인지 확인합니다.** 미국 장 마감 후(한국 오전 6~7시)에 버튼을 누르세요.")
+    with st.expander("❓ 어려운 용어 설명"):
+        st.markdown("**🐤 카나리아** — 시장 진입 신호. 나스닥·물가채 모멘텀이 모두 양수면 공격(주식), 하나라도 음수면 방어(현금·채권)")
+        st.markdown("**🌡️ BOFA 열기** — 시장 과열도 0~10점. 7.5↑ 과열 / 2.5↓ 안전")
+        st.markdown("**🩸 블러드** — 채권 스트레스 지수. 60일 평균 위=안전, 아래=주의")
+        st.markdown("**📡 ZBT** — 급락 후 반등 신호. 신호 발생 시 단기 저점 가능성")
+        st.markdown("**😱 공포·탐욕** — 시장 심리. 양수(+)=탐욕(과열 주의) / 음수(-)=공포(매수 기회)")
+        st.markdown("**⚡ 임펄스** — 단기 추세. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락")
+        st.markdown("**📏 이평 위치** — 20·60·120·200일 평균 대비 현재가. 양수=상승세")
+        st.markdown("**🔢 TD 카운트** — 패턴 카운트 1~9. 9에 가까울수록 추세 전환 주의")
+        st.markdown("**📈 코포크** — 중장기 추세. 양수(+)이고 상승 중이면 매수 유리")
+        st.markdown("**💪 상대강도(RS)** — 다른 종목보다 얼마나 더 올랐는지. 높을수록 강세")
 
     if st.button("▶ 미국 시장 분석 시작", type="primary", use_container_width=True, key="us_run"):
         prog = st.progress(0, text="카나리아 분석 중...")
@@ -2005,34 +2313,36 @@ with tab1:
         prog.empty()
 
         # ── 1. 종합 신호 ──
-        st.markdown('<p class="zone-header">📊 종합 신호</p>', unsafe_allow_html=True)
-        c1,c2,c3,c4 = st.columns(4)
+        st.markdown('<p class="zone-header">📊 지금 시장은?</p>', unsafe_allow_html=True)
+        c1,c2 = st.columns(2)
         if canary and "error" not in canary:
             color = "sig-green" if canary["mode"]=="공격" else "sig-red"
             c1.markdown(f'<div class="{color}">🐤 카나리아 신호<br><b>{canary["mode"]} 모드</b><br><span style="font-size:0.78rem">나스닥 모멘텀 {canary["qqq_mom"]*100:+.1f}%</span></div>', unsafe_allow_html=True)
         if bofa and "error" not in bofa:
             heat_color = "sig-red" if bofa["heat"]>=7.5 else ("sig-yellow" if bofa["heat"]>=5 else "sig-green")
             c2.markdown(f'<div class="{heat_color}">🌡️ 시장 열기<br><b>{bofa["heat"]}/10점</b><br><span style="font-size:0.78rem">{_heat_label(bofa["heat"])} · 상승추세{"✅" if bofa["trend_on"] else "❌"}</span></div>', unsafe_allow_html=True)
+        c1,c2 = st.columns(2)
         if blood and "error" not in blood:
             blood_color = "sig-green" if blood["vs_ma60"] == "위" else "sig-red"
-            c3.markdown(f'<div class="{blood_color}">🩸 채권 스트레스<br><b>60일평균 {blood["vs_ma60"]}</b><br><span style="font-size:0.78rem">수치: {blood["value"]:.4f}</span></div>', unsafe_allow_html=True)
+            c1.markdown(f'<div class="{blood_color}">🩸 채권 스트레스<br><b>60일평균 {blood["vs_ma60"]}</b><br><span style="font-size:0.78rem">수치: {blood["value"]:.4f}</span></div>', unsafe_allow_html=True)
         if zbt and "error" not in zbt:
             zbt_color = "sig-green" if zbt.get("signal") else "sig-yellow"
-            c4.markdown(f'<div class="{zbt_color}">📡 반등 신호(ZBT)<br><b>{"🟢 신호 발생!" if zbt.get("signal") else "⏳ 대기 중"}</b><br><span style="font-size:0.78rem">수치: {zbt["zbt"]:.3f}</span></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="{zbt_color}">📡 반등 신호(ZBT)<br><b>{"🟢 신호 발생!" if zbt.get("signal") else "⏳ 대기 중"}</b><br><span style="font-size:0.78rem">수치: {zbt["zbt"]:.3f}</span></div>', unsafe_allow_html=True)
 
         st.divider()
 
         # ── 2. 공포·탐욕 오실레이터 ──
-        st.markdown('<p class="zone-header">😱 공포·탐욕 오실레이터 — 시장 심리 지수</p>', unsafe_allow_html=True)
-        st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)")
-        _fg_cols = st.columns([1,1,1,1,1,1])
+        st.markdown('<p class="zone-header">😱 시장 심리 — 지금 탐욕인가 공포인가</p>', unsafe_allow_html=True)
+        st.caption("양수(+) = 탐욕 → 과열 주의 | 음수(-) = 공포 → 매수 기회일 수 있음")
+        _fg_r1 = st.columns(3)
+        _fg_r2 = st.columns(3)
         if fg and "error" not in fg:
-            _fg_cols[0].metric("S&P500 심리", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}", help="S&P500 기준 공포·탐욕 오실레이터. 양수=탐욕(과열), 음수=공포(매수기회)")
-            _fg_cols[1].metric("나스닥 심리", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}", help="나스닥 기준 공포·탐욕 오실레이터")
-            _fg_cols[2].metric("S&P500 추세", fg["spy_impulse"], help="단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립")
-            _fg_cols[3].metric("나스닥 추세", fg["qqq_impulse"], help="나스닥 단기 추세 방향")
-            _fg_cols[4].metric("S&P500 위치", f"{fg['spy_gap']:+.2f}%", help="장기 이평선(20·60·120·200일 평균) 대비 현재가 위치. 양수=상승세")
-            _fg_cols[5].metric("나스닥 위치", f"{fg['qqq_gap']:+.2f}%", help="나스닥 장기 이평선 대비 현재가 위치")
+            _fg_r1[0].metric("S&P500 심리", fg["spx_osc"], f"{'🟢' if fg['spx_osc']>0 else '🔴'} {fg['spx_sentiment']}", help="S&P500 기준 공포·탐욕 오실레이터. 양수=탐욕(과열), 음수=공포(매수기회)")
+            _fg_r1[1].metric("나스닥 심리", fg["ndx_osc"], f"{'🟢' if fg['ndx_osc']>0 else '🔴'} {fg['ndx_sentiment']}", help="나스닥 기준 공포·탐욕 오실레이터")
+            _fg_r1[2].metric("S&P500 추세", fg["spy_impulse"], help="단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립")
+            _fg_r2[0].metric("나스닥 추세", fg["qqq_impulse"], help="나스닥 단기 추세 방향")
+            _fg_r2[1].metric("S&P500 위치", f"{fg['spy_gap']:+.2f}%", help="장기 이평선(20·60·120·200일 평균) 대비 현재가 위치. 양수=상승세")
+            _fg_r2[2].metric("나스닥 위치", f"{fg['qqq_gap']:+.2f}%", help="나스닥 장기 이평선 대비 현재가 위치")
             c1,c2 = st.columns(2)
             c1.metric("S&P500 패턴 카운트", f"매도 {fg['spy_td_sell']} / 매수 {fg['spy_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
             c2.metric("나스닥 패턴 카운트", f"매도 {fg['qqq_td_sell']} / 매수 {fg['qqq_td_buy']}", help="TD 카운트. 숫자가 9에 가까울수록 추세 전환 주의")
@@ -2053,39 +2363,41 @@ with tab1:
                                         font_color='#e0e0e0',legend=dict(orientation='h',y=1.08))
                     _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
                     _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.07)')
-                    st.plotly_chart(_fig,use_container_width=True)
+                    st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
         st.divider()
 
         # ── 3. 코포크 + ZBT ──
-        st.markdown('<p class="zone-header">📈 중장기 추세 지표</p>', unsafe_allow_html=True)
-        st.caption("코포크: 중장기 추세 지표 — 양수(+)이고 상승 중이면 매수 유리한 구간")
-        _cp1, _cp2, _cp3 = st.columns([2,2,1])
+        st.markdown('<p class="zone-header">📈 중장기 방향 — 지금 상승세인가</p>', unsafe_allow_html=True)
+        st.caption("코포크가 양수(+)이고 상승 중이면 중장기 매수 유리 | ZBT: 급락 후 반등 신호")
+        _cp1, _cp2 = st.columns(2)
         with _cp1:
             st.caption("표준 코포크 (중장기)")
             if coppock and "error" not in coppock:
-                cols=st.columns(len(coppock))
+                _cp_n = min(len(coppock), 2)
+                cols=st.columns(_cp_n)
                 for i,(lbl,v) in enumerate(coppock.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
+                    cols[i % _cp_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
         with _cp2:
             st.caption("빠른 코포크 (단기)")
             if coppock_fast and "error" not in coppock_fast:
-                cols=st.columns(len(coppock_fast))
+                _cpf_n = min(len(coppock_fast), 2)
+                cols=st.columns(_cpf_n)
                 for i,(lbl,v) in enumerate(coppock_fast.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
-        with _cp3:
+                    cols[i % _cpf_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
+        if zbt and "error" not in zbt:
             st.caption("반등 신호(ZBT)")
-            if zbt and "error" not in zbt:
-                st.metric("ZBT 신호", "🟢 발생!" if zbt.get("signal") else "⏳ 대기", f"수치: {zbt['zbt']:.3f}", help="급락 후 반등 포착 신호. 발생 시 단기 저점 가능성")
-                if zbt.get("vix"): st.metric("변동성(VIX)", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️ 불안", help="VIX: 시장 공포 지수. 20 이하면 안정, 30 이상이면 공포 구간")
+            _zbt_c1, _zbt_c2 = st.columns(2)
+            _zbt_c1.metric("ZBT 신호", "🟢 발생!" if zbt.get("signal") else "⏳ 대기", f"수치: {zbt['zbt']:.3f}", help="급락 후 반등 포착 신호. 발생 시 단기 저점 가능성")
+            if zbt.get("vix"): _zbt_c2.metric("변동성(VIX)", zbt["vix"], "안정✅" if zbt.get("vix_ok") else "⚠️ 불안", help="VIX: 시장 공포 지수. 20 이하면 안정, 30 이상이면 공포 구간")
 
         st.divider()
 
         # ── 4. RS 상위 종목 ──
-        st.markdown('<p class="zone-header">🏆 강한 종목 순위 (상대강도 상위)</p>', unsafe_allow_html=True)
-        st.caption("같은 기간 다른 종목보다 더 많이 오른 종목 순위. 강한 종목이 계속 강한 경향이 있음")
+        st.markdown('<p class="zone-header">🏆 지금 강한 종목 TOP10</p>', unsafe_allow_html=True)
+        st.caption("다른 종목보다 더 많이 오른 종목 순위 — 강한 종목이 계속 강한 경향이 있습니다")
         c1,c2 = st.columns(2)
         with c1:
             st.caption("S&P500 Top 10")
@@ -2105,7 +2417,7 @@ with tab1:
         st.divider()
 
         # ── 5. 섹터 ETF RS ──
-        st.markdown('<p class="zone-header">🏭 미국 업종별 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 어떤 업종이 강한가</p>', unsafe_allow_html=True)
         st.caption("🟢 강세(70↑) = 지금 돈이 몰리는 업종 / 🔴 약세(50↓) = 자금이 빠지는 업종")
         if us_sector and "error" not in us_sector:
             df_s=pd.DataFrame(us_sector["sectors"])
@@ -2114,13 +2426,14 @@ with tab1:
                 use_container_width=True, hide_index=True,
                 column_config={"강도점수(0~100)":st.column_config.ProgressColumn("강도점수(0~100)",min_value=0,max_value=100,format="%.1f")})
             with st.expander("📊 업종별 강도 차트"):
-                st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True)
+                st.plotly_chart(_rs_bar_chart(us_sector["sectors"], name_key="name"), use_container_width=True, config={"scrollZoom": False})
         elif us_sector: st.error(us_sector.get("error"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 2: 국내 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
+    st.info("**오늘 한국 시장을 한눈에 파악합니다.** 장 마감 후(오후 4시 이후)에 분석 버튼을 누르세요. 강한 업종·수급·ETF 순위를 보여드립니다.")
     # ── KST 시간 + 자동 업데이트 ──
     import datetime as _dt
     _kst = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
@@ -2150,22 +2463,18 @@ with tab2:
     _today_str = _kst.strftime("%Y-%m-%d")
     _auto_ran_key = f"kr_auto_ran_{_today_str}"
     if _is_after_close and _is_weekday and not st.session_state.get(_auto_ran_key):
-        st.info("장 마감 후입니다. **▶ 국내 지표 전체 실행** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
+        st.info("장 마감 후입니다. **▶ 국내 시장 분석 시작** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
 
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
-        st.markdown("""
-| 지표 | 한 줄 설명 |
-|------|-----------|
-| **수급 오실레이터** | 외국인·기관의 매수/매도 강도. **양수(+) = 사는 힘이 강함** / 음수(-) = 파는 힘이 강함 |
-| **RS (상대강도)** | 다른 ETF 대비 상대적 강도. **70점 이상이면 강세** / 50점 이하면 약세 |
-| **빈집 주도주** | 주도 업종 중 아직 덜 오른 종목. 주도주가 급등한 뒤 소외됐다가 합류하는 종목을 찾는 전략 |
-| **임펄스** | 단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립 |
-| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
-| **CMF** | 자금 흐름 지표. **양수(+) = 자금 유입(매수 우세)** / 음수(-) = 자금 유출(매도 우세) |
-| **오실레이터** | 기준선(0) 위면 상승 추세, 아래면 하락 추세를 나타내는 지표 |
-""")
+    with st.expander("❓ 어려운 용어 설명"):
+        st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 강함 / 음수=파는 힘 강함")
+        st.markdown("**💪 상대강도(RS)** — 다른 ETF 대비 강도. 70점↑ 강세 / 50점↓ 약세")
+        st.markdown("**🏠 빈집 주도주** — 주도 업종 중 아직 덜 오른 종목. 따라 오를 가능성")
+        st.markdown("**⚡ 임펄스** — 단기 추세. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락")
+        st.markdown("**🔢 TD 카운트** — 패턴 카운트 1~9. 9에 가까울수록 추세 전환 주의")
+        st.markdown("**💧 CMF(자금흐름)** — 양수=자금 유입(매수 우세) / 음수=자금 유출(매도 우세)")
+        st.markdown("**📊 오실레이터** — 기준선(0) 위=상승 추세 / 아래=하락 추세")
 
-    st.markdown('<p class="zone-header">시장 스캔</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📡 오늘 시장 현황</p>', unsafe_allow_html=True)
 
     # 자동 새로고침으로 재진입하거나 버튼 클릭 시 실행
     _should_run = st.button("▶ 국내 시장 분석 시작", type="primary", use_container_width=True, key="kr_run")
@@ -2181,7 +2490,7 @@ with tab2:
         st.caption(f"🕐 마지막 업데이트: {_kst.strftime('%Y-%m-%d %H:%M')} KST")
 
         # ── 지수 현황 ──
-        st.markdown('<p class="zone-header">📊 지수 현황</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📊 코스피·코스닥 현황</p>', unsafe_allow_html=True)
         if market and "error" not in market:
             kp=market["kospi"]; kq=market["kosdaq"]
             st.caption(f"기준: {market['date']} KST | 출처: 네이버 실시간")
@@ -2212,7 +2521,7 @@ with tab2:
         st.divider()
 
         # ── 업종 강세/약세 ──
-        st.markdown('<p class="zone-header">🏭 오늘 강한 업종 / 약한 업종</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 오늘 강한 업종 vs 약한 업종</p>', unsafe_allow_html=True)
         if sector and "error" not in sector:
             c1,c2=st.columns(2)
             with c1:
@@ -2228,45 +2537,47 @@ with tab2:
         st.divider()
 
         # ── 수급 오실레이터 ──
-        st.markdown('<p class="zone-header">💹 외국인·기관 수급 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">💹 외국인·기관 매매 동향</p>', unsafe_allow_html=True)
         st.caption("양수(+) = 외국인·기관이 사는 힘이 강함 / 음수(-) = 파는 힘이 강함")
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
-            st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 수급 강도", f"{osc:+.2f}", help="외국인·기관 매수/매도 강도 합산. 양수면 매수 우세")
+            st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
             c1,c2=st.columns(2)
             with c1:
-                st.markdown("**💪 수급 강한 업종**")
+                st.markdown("**수급 강세**")
                 for name,rel in supply.get("strong",[]): st.markdown(f"{name}: {_cv(rel)}", unsafe_allow_html=True)
             with c2:
-                st.markdown("**📉 수급 약한 업종**")
+                st.markdown("**수급 약세**")
                 for name,rel in supply.get("weak",[]): st.markdown(f"{name}: {_cv(rel)}", unsafe_allow_html=True)
         elif supply: st.error(supply.get("error"))
 
         st.divider()
 
         # ── 한국 ETF RS ──
-        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 강도 순위</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 순위</p>', unsafe_allow_html=True)
         st.caption("🟢 강세(70↑) = 지금 자금이 몰리는 ETF / 70점 이상 ETF 업종 위주로 종목 탐색 추천")
         if kr_etf and "error" not in kr_etf:
             show=kr_etf.get("strong") or kr_etf.get("all",[])[:10]
             if show:
                 df_kr=pd.DataFrame(show)
                 df_kr["강도"]=df_kr["norm_rs"].apply(lambda x:"🟢 강세" if x>=70 else "🟡 보통")
-                st.dataframe(df_kr.rename(columns={"name":"ETF명","norm_rs":"강도점수(0~100)","강도":"판정"})[["ETF명","강도점수(0~100)","판정"]],
+                st.dataframe(df_kr.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"KOSPI대비(%)","강도":"강도"})[["ETF명","RS(0~100)","KOSPI대비(%)","강도"]],
                     use_container_width=True, hide_index=True,
-                    column_config={"강도점수(0~100)":st.column_config.ProgressColumn("강도점수(0~100)",min_value=0,max_value=100,format="%.1f")})
-            with st.expander("📊 ETF 강도 차트"):
-                _all=kr_etf.get("all",[])[:25]; _all_s=sorted(_all,key=lambda x:x["norm_rs"])
-                _names=[r["name"] for r in _all_s]; _vals=[r["norm_rs"] for r in _all_s]
-                _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+                    column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
+            with st.expander("📊 한국 ETF RS 차트 (KOSPI 대비 초과수익률)"):
+                _all=kr_etf.get("all",[])[:25]; _all_s=sorted(_all,key=lambda x:x.get("rs_raw",0))
+                _names=[r["name"] for r in _all_s]; _vals=[r.get("rs_raw",0) for r in _all_s]
+                _colors=["#00c853" if v>=0 else "#ff4b4b" for v in _vals]
                 _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
-                                      text=[f"{v:.1f}" for v in _vals],textposition='outside'))
-                _fig.update_layout(xaxis_range=[0,110],height=max(320,len(_names)*26),
-                                    margin=dict(l=10,r=50,t=10,b=10),
+                                      text=[f"{v:+.1f}%" for v in _vals],textposition='outside'))
+                _mx=max(abs(min(_vals,default=0)),abs(max(_vals,default=10)),10)
+                _fig.update_layout(xaxis_range=[-_mx*1.35,_mx*1.35],
+                                    xaxis_title="KOSPI 대비 초과수익률 (%)",
+                                    height=max(320,len(_names)*26),
+                                    margin=dict(l=10,r=70,t=10,b=10),
                                     plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
-                _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
-                _fig.add_vline(x=50,line_dash="dash",line_color="#ffc107",opacity=0.5)
-                st.plotly_chart(_fig,use_container_width=True)
+                _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
+                st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
         elif kr_etf: st.error(kr_etf.get("error"))
 
         st.divider()
@@ -2289,8 +2600,8 @@ with tab2:
     st.divider()
 
     # ── 한국 개별종목 RS ──
-    st.markdown('<p class="zone-header">📈 강한 종목 순위 (개별종목 상대강도)</p>', unsafe_allow_html=True)
-    st.caption("같은 기간 코스피·코스닥 전체 대비 더 많이 오른 종목 순위. 70점 이상이면 강세")
+    st.markdown('<p class="zone-header">📈 강한 종목 순위</p>', unsafe_allow_html=True)
+    st.caption("코스피·코스닥 전체 대비 더 많이 오른 종목 순위 — 70점 이상이면 강세")
     rs_xl_file = st.file_uploader(
         "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
         help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
@@ -2328,23 +2639,26 @@ with tab2:
                 use_container_width=True, hide_index=True,
                 column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")})
         st.caption(f"전체 {len(kr_rs.get('all',[]))}종목 스캔 / RS≥70 강세 {len(kr_rs.get('strong',[]))}종목")
-        with st.expander("📊 개별종목 RS 차트"):
-            _show=kr_rs.get("strong") or kr_rs.get("all",[])[:15]
-            _show_s=sorted(_show,key=lambda x:x["norm_rs"])
-            _names=[r["name"] for r in _show_s]; _vals=[r["norm_rs"] for r in _show_s]
-            _colors=["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals]
+        with st.expander("📊 개별종목 RS 차트 (KOSPI 대비 초과수익률)"):
+            _show=kr_rs.get("strong") or kr_rs.get("all",[])[:20]
+            _show_s=sorted(_show,key=lambda x:x["rs_raw"])
+            _names=[r["name"] for r in _show_s]; _vals=[r["rs_raw"] for r in _show_s]
+            _colors=["#00c853" if v>=0 else "#ff4b4b" for v in _vals]
             _fig=go.Figure(go.Bar(x=_vals,y=_names,orientation='h',marker_color=_colors,
-                                  text=[f"{v:.1f}" for v in _vals],textposition='outside'))
-            _fig.update_layout(xaxis_range=[0,110],height=max(300,len(_names)*28),
-                                margin=dict(l=10,r=50,t=10,b=10),
+                                  text=[f"{v:+.1f}%" for v in _vals],textposition='outside'))
+            _max_abs=max(abs(min(_vals,default=0)),abs(max(_vals,default=10)),10)
+            _fig.update_layout(xaxis_range=[-_max_abs*1.35,_max_abs*1.35],
+                                xaxis_title="KOSPI 대비 초과수익률 (%)",
+                                height=max(300,len(_names)*28),
+                                margin=dict(l=10,r=70,t=10,b=10),
                                 plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
-            _fig.add_vline(x=70,line_dash="dash",line_color="#00c853",opacity=0.5)
-            st.plotly_chart(_fig,use_container_width=True)
+            _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
+            st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
     # ── 한국 ETF RS ──
-    st.markdown('<p class="zone-header">📊 한국 ETF 강도 순위 (정밀)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📊 ETF 정밀 순위</p>', unsafe_allow_html=True)
     st.caption("Excel 파일 업로드 시 더 정확한 데이터로 계산 / 없으면 자동으로 수집")
     etf_rs_xl_file = st.file_uploader(
         "etf상대강도데이터.xlsx 업로드 (선택 — 없으면 자동 수집)", type=["xlsx"], key="etf_rs_xl_file",
@@ -2383,30 +2697,33 @@ with tab2:
         if show_etf:
             df_etf_show = pd.DataFrame(show_etf)
             st.dataframe(
-                df_etf_show.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"RS원시","risk_adj":"변동성조정모멘텀"})[["ETF명","RS(0~100)","RS원시","변동성조정모멘텀"]],
+                df_etf_show.rename(columns={"name":"ETF명","norm_rs":"RS(0~100)","rs_raw":"KOSPI대비(%)"})[["ETF명","RS(0~100)","KOSPI대비(%)"]],
                 use_container_width=True, hide_index=True,
                 column_config={"RS(0~100)":st.column_config.ProgressColumn("RS(0~100)",min_value=0,max_value=100,format="%.1f")}
             )
-        with st.expander("📊 ETF RS 차트 (Excel)"):
+        with st.expander("📊 ETF RS 차트 (KOSPI 대비 초과수익률)"):
             _all_etf = etf_rs_xl.get("all", [])[:25]
-            _all_etf_s = sorted(_all_etf, key=lambda x: x["norm_rs"])
+            _all_etf_s = sorted(_all_etf, key=lambda x: x["rs_raw"])
             _names_e = [r["name"] for r in _all_etf_s]
-            _vals_e = [r["norm_rs"] for r in _all_etf_s]
-            _colors_e = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in _vals_e]
+            _vals_e = [r["rs_raw"] for r in _all_etf_s]
+            _colors_e = ["#00c853" if v>=0 else "#ff4b4b" for v in _vals_e]
             _fig_e = go.Figure(go.Bar(x=_vals_e, y=_names_e, orientation='h', marker_color=_colors_e,
-                                     text=[f"{v:.1f}" for v in _vals_e], textposition='outside'))
-            _fig_e.update_layout(xaxis_range=[0,110], height=max(320, len(_names_e)*26),
-                                 margin=dict(l=10,r=50,t=10,b=10),
+                                     text=[f"{v:+.1f}%" for v in _vals_e], textposition='outside'))
+            _max_e = max(abs(min(_vals_e,default=0)),abs(max(_vals_e,default=10)),10)
+            _fig_e.update_layout(xaxis_range=[-_max_e*1.35,_max_e*1.35],
+                                 xaxis_title="KOSPI 대비 초과수익률 (%)",
+                                 height=max(320, len(_names_e)*26),
+                                 margin=dict(l=10,r=70,t=10,b=10),
                                  plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
-            _fig_e.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
-            _fig_e.add_vline(x=50, line_dash="dash", line_color="#ffc107", opacity=0.5)
-            st.plotly_chart(_fig_e, use_container_width=True)
+            _fig_e.add_vline(x=0, line_dash="solid", line_color="#888888", opacity=0.8)
+            st.plotly_chart(_fig_e, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
     # ── 한국 F&G 오실레이터 ──
-    st.markdown('<p class="zone-header">😨 한국 공포·탐욕 오실레이터</p>', unsafe_allow_html=True)
-    st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)  |  자동: 참고용 / Excel: 정밀 분석")
+    st.markdown('<p class="zone-header">😨 한국 시장 심리 — 공포인가 탐욕인가</p>', unsafe_allow_html=True)
+    st.caption("양수(+) = 탐욕 → 과열 주의 | 음수(-) = 공포 → 매수 기회일 수 있음")
+    st.caption("자동(참고용): 방향성만 확인  |  Excel(정밀): VKOSPI·국채선물 원본 데이터 분석")
     if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
             with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
                 kr_fg_auto = get_kr_fg_auto()
@@ -2416,10 +2733,10 @@ with tab2:
                 st.caption(f"기준일: {kr_fg_auto['date']}  |  {kr_fg_auto.get('source','')}")
                 for label, v in kr_fg_auto["results"].items():
                     st.markdown(f"**{label}**")
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     c1.metric("오실레이터", v["osc"], f"{'🟢' if v['osc']>0 else '🔴'} {v['sentiment']}")
                     c2.metric("임펄스", v["impulse"])
-                    c3.metric("TD 매도/매수", f"{v['td_sell']} / {v['td_buy']}")
+                    st.metric("TD 매도/매수", f"{v['td_sell']} / {v['td_buy']}")
                     if v.get("chart"):
                         with st.expander(f"📈 {label} 오실레이터 차트"):
                             ch = v["chart"]
@@ -2436,9 +2753,9 @@ with tab2:
                                                font_color='#e0e0e0', showlegend=False)
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
-                            st.plotly_chart(_fig, use_container_width=True)
-    st.caption("📂 피어앤그리드.xlsx (KOSPI / KOSDAQ 시트) — 정밀 분석")
-    fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
+                            st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
+    st.caption("📂 정밀 분석: 피어앤그리드.xlsx 파일이 있으면 아래에 업로드하세요 (KOSPI / KOSDAQ 시트 포함)")
+    fg_file = st.file_uploader("피어앤그리드.xlsx", type=["xlsx"], key="kr_fg_file")
     if fg_file:
         try:
             fg_file.seek(0)
@@ -2494,12 +2811,12 @@ with tab2:
                                     font_color='#e0e0e0',showlegend=False)
                 _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                 _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                st.plotly_chart(_fig,use_container_width=True)
+                st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
 
     # ── 수급 자동 스크리닝 ──
-    st.markdown('<p class="zone-header">📡 외국인 수급 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📡 외국인 매매 동향</p>', unsafe_allow_html=True)
     st.caption("외국인 순매수 누적 | 기관 데이터는 무료소스 없음 — 방향성만 참고")
     col_sa, col_sb = st.columns([1,2])
     with col_sa:
@@ -2546,7 +2863,7 @@ with tab2:
                         legend=dict(orientation="h",y=1.05))
                     fig_s.update_yaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
                     fig_s.update_xaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_s, use_container_width=True)
+                    st.plotly_chart(fig_s, use_container_width=True, config={"scrollZoom": False})
 
             c1, c2 = st.columns(2)
             with c1:
@@ -2574,17 +2891,17 @@ with tab2:
     st.divider()
 
     # ── KRX 기관 순매수 + 거래대금 강도 ──
-    st.markdown('<p class="zone-header">🏦 기관 순매수 + 거래대금 강도 〔KRX 자동〕</p>', unsafe_allow_html=True)
-    st.caption("KOSPI/KOSDAQ 시장 전체 기관·외국인 순매수 + 거래대금 강도 | 출처: KRX (pykrx)")
+    st.markdown('<p class="zone-header">🏦 기관 매매 동향</p>', unsafe_allow_html=True)
+    st.caption("KOSPI/KOSDAQ 전체 기관·외국인 순매수 + 거래대금 강도 | 출처: KRX")
     if st.button("▶ 기관 수급 + 거래대금 강도 조회 (KRX)", key="kr_inst_flow_run", use_container_width=True):
         with st.spinner("KRX 데이터 수집 중 (10~20초)..."):
             inst_flow = get_krx_inst_market_flow(days=10)
             vol_str = get_krx_volume_strength()
         if "error" not in vol_str:
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             c1.metric("KOSPI 거래대금 (오늘)", f"{vol_str['today_tril']:.2f}조")
             c2.metric("20일 평균", f"{vol_str['ma20_tril']:.2f}조")
-            c3.metric("거래대금 강도", f"{vol_str['rotation_rate']:.0f}%", vol_str["level"])
+            st.metric("거래대금 강도", f"{vol_str['rotation_rate']:.0f}%", vol_str["level"])
             if vol_str.get("chart"):
                 ch = vol_str["chart"]
                 fig_tv = go.Figure()
@@ -2594,7 +2911,7 @@ with tab2:
                                             line=dict(color="#FF8C00", width=2, dash="dot")))
                 fig_tv = _chart_layout(fig_tv, height=220)
                 fig_tv.update_yaxes(title_text="거래대금(조원)")
-                st.plotly_chart(fig_tv, use_container_width=True)
+                st.plotly_chart(fig_tv, use_container_width=True, config={"scrollZoom": False})
         else:
             st.caption(f"거래대금 강도: {vol_str['error']}")
         if "error" not in inst_flow:
@@ -2615,15 +2932,15 @@ with tab2:
                     fig_inst = _chart_layout(fig_inst, height=200)
                     fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원)")
                     fig_inst.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-                    st.plotly_chart(fig_inst, use_container_width=True)
+                    st.plotly_chart(fig_inst, use_container_width=True, config={"scrollZoom": False})
         else:
             st.caption(f"기관 순매수: {inst_flow['error']}")
 
     st.divider()
 
     # ── 컨센 가속 자동 ──
-    st.markdown('<p class="zone-header">🤖 컨센서스 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
-    st.caption("WiseReport: EPS성장률+매수비율+TP인상비율 합산 스코어 (원본과 근사치)")
+    st.markdown('<p class="zone-header">🤖 전문가 전망 순위</p>', unsafe_allow_html=True)
+    st.caption("증권사 전망이 좋아지는 종목 순위 — EPS성장률·매수비율·목표가 인상 합산 (참고용)")
     if st.button("▶ 컨센서스 스크리닝 〔참고용〕", key="kr_consensus_auto_run", use_container_width=True):
         with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 컨센서스 수집 중... (60~90초)"):
             cons_auto = get_kr_consensus_auto(top_n=20)
@@ -2655,7 +2972,7 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
-    st.markdown('<p class="zone-header">📋 컨센 가속 & 수급 〔Excel 정밀〕</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📋 Excel 정밀 분석</p>', unsafe_allow_html=True)
     st.caption("📂 데이터 정리.xlsx (db 시트) — 원본 EPS가속(1M>3M) + 외국인/기관 교집합")
     consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
     if consensus_file:
@@ -2691,43 +3008,36 @@ with tab2:
 # 탭 3: 종목 분석
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
-        st.markdown("""
-| 지표 | 한 줄 설명 |
-|------|-----------|
-| **CMF (자금흐름)** | 양수(+) = 자금 유입(매수 우세) / 음수(-) = 자금 유출(매도 우세) |
-| **임펄스** | 단기 추세 방향. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락 / 🔵중립 |
-| **TD 카운트** | 가격 패턴 카운트 (1~9). **9에 가까울수록** 추세 전환 주의 |
-| **MA10 (10주 이평)** | 최근 10주 평균 가격. 현재가가 이 위에 있으면 중기 상승추세 |
-| **시가→저가 낙폭** | 장 시작 후 최대 얼마나 내려갔는지 평균. 지정가 매수 시 이 수치만큼 낮게 설정 참고 |
-| **고가→종가 하락** | 장중 최고점에서 종가까지 평균 낙폭. 고점 근처 추격 매수 위험도 |
-| **수급 오실레이터** | 외국인·기관 매수/매도 강도. 양수=사는 힘, 음수=파는 힘 |
-| **컨센서스** | 증권사 애널리스트들의 실적 전망치. 전망이 올라가는 종목이 주가도 오르는 경향 |
-""")
+    st.info("**관심 종목을 직접 분석합니다.** 아래에 종목명이나 티커(예: 삼성전자, NVDA)를 입력하고 분석 버튼을 누르세요.")
+    with st.expander("❓ 어려운 용어 설명"):
+        st.markdown("**💧 CMF(자금흐름)** — 양수=자금 유입(매수 우세) / 음수=자금 유출(매도 우세)")
+        st.markdown("**⚡ 임펄스** — 단기 추세. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락")
+        st.markdown("**🔢 TD 카운트** — 패턴 카운트 1~9. 9에 가까울수록 추세 전환 주의")
+        st.markdown("**📏 MA10(10주 이평)** — 최근 10주 평균가. 현재가가 이 위에 있으면 중기 상승추세")
+        st.markdown("**📉 시가→저가 낙폭** — 장 시작 후 최대 낙폭 평균. 이 수치만큼 낮게 지정가 설정 참고")
+        st.markdown("**📈 고가→종가 하락** — 장중 최고점→종가 평균 낙폭. 고점 추격매수 위험 정도")
+        st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 / 음수=파는 힘")
+        st.markdown("**📋 컨센서스** — 증권사 실적 전망치. 전망이 올라가는 종목이 주가도 오르는 경향")
 
-    st.markdown('<p class="zone-header">🎯 지정가 매수 타점 분석</p>', unsafe_allow_html=True)
-    st.caption("1년 데이터 기반 — 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
+    st.markdown('<p class="zone-header">🎯 언제 사면 좋을까 — 매수 타점</p>', unsafe_allow_html=True)
+    st.caption("1년 데이터 기반 — 시가 대비 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
 
     _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()], key=lambda x: x[0])
     sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
     ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
 
     st.divider()
-    st.caption("📂 추가 Excel 업로드 (선택) — 업로드 시 자동 계산과 함께 정밀 비교 표시")
-    _col_xu1, _col_xu2, _col_xu3 = st.columns(3)
-    with _col_xu1:
+    with st.expander("📂 Excel 파일 추가 (선택) — 더 정밀하게 보고 싶을 때"):
         trend_supply_file = st.file_uploader(
-            "추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
+            "① 추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
             help="DB(2) 시트 — 5일간 기관 매수수량 오실레이터 추가"
         )
-    with _col_xu2:
         trading_xl_file = st.file_uploader(
-            "국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
+            "② 국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
             help="_RotationRate_ 컬럼 — 거래대금 강도 비교 표시"
         )
-    with _col_xu3:
         weekly_xl_file = st.file_uploader(
-            "추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
+            "③ 추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
             help="DB 시트 — 주간 OHLCV로 CMF/임펄스/TD 계산 (HTS 원천 데이터)"
         )
     if trend_supply_file:
@@ -2757,7 +3067,7 @@ with tab3:
 
         # ── DART 기업 프로필 ──────────────────────────────────────────────────
         _dart_key = st.secrets.get("DART_API_KEY", "") if hasattr(st, "secrets") else ""
-        st.markdown('<p class="zone-header">🏢 기업 프로필 〔DART 보고서〕</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏢 기업 정보</p>', unsafe_allow_html=True)
         if not _dart_key:
             st.caption("DART API 키가 설정되지 않았습니다. Streamlit Secrets에 DART_API_KEY를 추가하면 분기/사업보고서 핵심 내용(사업개요·주요제품·수주현황)을 자동으로 표시합니다.")
         elif not kr_tickers:
@@ -2816,17 +3126,16 @@ with tab3:
                 _rt_label = (f"🔴 실시간 {_rt_price}원 ({_rt_dir} {_rt_pct}%)" if _rt_price else "")
                 st.markdown(f"#### 📌 **{t}** {kr} — 1년 기준가: `{res['price']:,}` {_rt_label}")
                 c1,c2 = st.columns(2)
-                c1.metric("장중 고점→종가 평균 하락", f"{res['고가종가하락']:+.2f}%", help="장중 가장 높은 가격에서 종가까지 평균 낙폭. 고점 근처 추격매수의 위험 정도")
-                c2.metric("전날 종가 대비 당일 저가", f"{res['저가종가괴리']:+.2f}%", help="전날 종가 기준 당일 저가까지 얼마나 내려가는지 평균 (갭하락 포함)")
-                c1.metric("시작가 대비 최대 낙폭", f"{res['시가저가괴리']:+.2f}%", help="장 시작 후 최저점까지 평균 낙폭 → 지정가 설정 시 이 수치만큼 낮게 걸기 참고")
-                c2.metric("전날 종가 대비 당일 최고", f"{res['전일종가고가']:+.2f}%", help="전날 종가 기준 당일 최고가까지 평균 상승폭")
-                c1.metric("시작가 대비 당일 최고", f"{res['시가고가괴리']:+.2f}%", help="장 시작 후 최고점까지 평균 상승폭")
-                st.caption(f"💡 지정가 매수 팁: 시작가 대비 최대 낙폭({res['시가저가괴리']:+.2f}%)만큼 낮게 지정가를 설정하면 체결 가능성이 높아요")
+                c1.metric("고가→종가 평균 하락", f"{res['고가종가하락']:+.2f}%", help="장중 고점 대비 종가 평균 낙폭. 지정가보다 높게 올라갔다가 내려오는 정도")
+                c2.metric("전일종가→당일저가 괴리", f"{res['저가종가괴리']:+.2f}%", help="전일 종가 대비 당일 저가 평균 괴리. 갭하락 포함")
+                c1.metric("시가→저가 평균 낙폭", f"{res['시가저가괴리']:+.2f}%", help="시가 기준 장중 최대 낙폭 평균")
+                c2.metric("전일종가→당일고가", f"{res['전일종가고가']:+.2f}%", help="전일 종가 대비 당일 고가 평균 괴리율")
+                c1.metric("시가→당일고가 평균", f"{res['시가고가괴리']:+.2f}%", help="시가 대비 장중 고점까지 평균 상승폭")
+                st.caption(f"💡 힌트: 시가 대비 저가 괴리({res['시가저가괴리']:+.2f}%) → 시가보다 그 정도 낮게 지정가 설정")
                 st.divider()
 
         st.divider()
-        st.markdown('<p class="zone-header">📊 주봉 추세 분석 (자금흐름·CMF)</p>', unsafe_allow_html=True)
-        st.caption("주봉 기준으로 자금이 들어오는지 나가는지 분석. 매수 신호가 뜨고 CMF가 양수이면 매수 고려")
+        st.markdown('<p class="zone-header">📊 주간 추세 — 자금이 들어오는가</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 주간 추세 분석 중..."):
                 wt = get_weekly_trend(t)
@@ -2835,14 +3144,14 @@ with tab3:
                 st.error(f"❌ {t} {kr}: {wt['error']}")
             else:
                 st.markdown(f"#### 📌 **{t}** {kr}")
-                c1,c2,c3 = st.columns(3)
-                c1.metric("자금흐름(CMF, 4주)", f"{wt['cmf']:.4f}", "🟢 자금 유입" if wt['cmf']>0 else "🔴 자금 유출", help="최근 4주 자금 흐름. 양수=매수세 우세, 음수=매도세 우세")
-                c2.metric("주봉 추세 방향", wt["impulse_weekly"], help="주봉 기준 단기 추세. 🟢강세=상승 중 / 🔴약세=하락 중 / 🔵중립")
-                sig = "🟢 매수 신호" if wt["buy_signal"] else ("🔴 매도 신호" if wt["sell_signal"] else "⏳ 대기 중")
-                c3.metric("매매 신호", sig, f"최근4주 매수신호: {wt['recent_buy_4w']}회", help="CMF 기반 매수/매도 신호")
-                c1.metric("주봉 패턴카운트", f"매도 {wt['w_td_sell']} / 매수 {wt['w_td_buy']}", help="TD 카운트. 9에 가까울수록 추세 전환 주의")
-                c2.metric("일봉 패턴카운트", f"매도 {wt['d_td_sell']} / 매수 {wt['d_td_buy']}", help="일봉 기준 TD 카운트")
-                c3.metric("월봉 패턴카운트", f"매도 {wt['m_td_sell']} / 매수 {wt['m_td_buy']}", help="월봉 기준 TD 카운트 (장기)")
+                c1,c2 = st.columns(2)
+                c1.metric("CMF (4주)", f"{wt['cmf']:.4f}", "🟢 자금유입" if wt['cmf']>0 else "🔴 자금유출")
+                c2.metric("주간 임펄스", wt["impulse_weekly"])
+                sig = "🟢 매수신호" if wt["buy_signal"] else ("🔴 매도신호" if wt["sell_signal"] else "⏳ 대기")
+                st.metric("CMF 신호", sig, f"최근4주 매수: {wt['recent_buy_4w']}회")
+                c1.metric("주봉 TD 매도/매수", f"{wt['w_td_sell']} / {wt['w_td_buy']}")
+                c2.metric("일봉 TD 매도/매수", f"{wt['d_td_sell']} / {wt['d_td_buy']}")
+                st.metric("월봉 TD 매도/매수", f"{wt['m_td_sell']} / {wt['m_td_buy']}")
                 if wt.get("ma10"): st.caption(f"현재가: {wt['price']:,} | 주봉 MA10: {wt['ma10']:,}")
                 if wt.get("chart"):
                     with st.expander("📊 주봉 차트 보기 (가격 + CMF)"):
@@ -2863,7 +3172,7 @@ with tab3:
                                             legend=dict(orientation='h',y=1.08))
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
+                        st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
                 st.divider()
 
         # ── 추세판별기 주간 Excel (선택) ──
@@ -2878,13 +3187,13 @@ with tab3:
                     st.error(f"추세판별기(주간) Excel 오류: {wkr['error']}")
                 else:
                     st.divider()
-                    st.markdown('<p class="zone-header">📅 주간 추세판별기 〔Excel HTS〕</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="zone-header">📅 주간 추세 (Excel HTS)</p>', unsafe_allow_html=True)
                     st.caption(f"시트: {_wk_sn} | {wkr['rows']}주 | {wkr['date_range']}")
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     c1.metric("CMF (4주)", f"{wkr['cmf']:.4f}", "🟢 자금유입" if wkr['cmf'] > 0 else "🔴 자금유출")
                     c2.metric("주간 임펄스", wkr["impulse_weekly"])
                     sig = "🟢 매수신호" if wkr["buy_signal"] else ("🔴 매도신호" if wkr["sell_signal"] else "⏳ 대기")
-                    c3.metric("CMF 신호", sig, f"최근4주 매수: {wkr['recent_buy_4w']}회")
+                    st.metric("CMF 신호", sig, f"최근4주 매수: {wkr['recent_buy_4w']}회")
                     c1.metric("주봉 TD 매도/매수", f"{wkr['w_td_sell']} / {wkr['w_td_buy']}")
                     if wkr.get("ma10"):
                         st.caption(f"현재가: {wkr['price']:,} | 주봉 MA10: {wkr['ma10']:,}")
@@ -2908,7 +3217,7 @@ with tab3:
                                                 legend=dict(orientation='h', y=1.08))
                             _fig2.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig2.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
-                            st.plotly_chart(_fig2, use_container_width=True)
+                            st.plotly_chart(_fig2, use_container_width=True, config={"scrollZoom": False})
             except Exception as e:
                 st.error(f"추세판별기(주간) 파일 읽기 오류: {e}")
 
@@ -2927,7 +3236,7 @@ with tab3:
                 close_col_tsd = next((c for c in df_tsd.columns if '종가' in str(c)), None)
                 buy_label = buy_col if buy_col else "매수수량"
                 sell_label = sell_col if sell_col else "매도수량"
-                st.markdown('<p class="zone-header">🏦 추세판별기 수급 〔Excel〕</p>', unsafe_allow_html=True)
+                st.markdown('<p class="zone-header">🏦 수급 데이터 (Excel)</p>', unsafe_allow_html=True)
                 if buy_col and close_col_tsd:
                     df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
                     df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
@@ -2957,7 +3266,7 @@ with tab3:
                                          showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
                     fig_tsd.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_tsd, use_container_width=True)
+                    st.plotly_chart(fig_tsd, use_container_width=True, config={"scrollZoom": False})
                     st.caption(f"시트: {_tsd_sn} | 매수: {buy_col} | 매도: {sell_col}")
                 else:
                     st.warning(f"매수 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)}")
@@ -2965,7 +3274,7 @@ with tab3:
                 st.error(f"추세판별기 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown('<p class="zone-header">💰 거래대금 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">💰 거래 활성도 — 돈이 몰리는가</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 거래대금 강도 분석 중..."):
                 ti = get_trading_intensity(t)
@@ -2974,10 +3283,10 @@ with tab3:
                 st.error(f"❌ {t} {kr}: {ti['error']}")
             else:
                 st.markdown(f"#### 📌 **{t}** {kr}")
-                c1,c2,c3 = st.columns(3)
+                c1,c2 = st.columns(2)
                 c1.metric("거래대금 강도 TI", f"{ti['ti']:.1f}", ti["signal_text"])
                 c2.metric("TI MA3", f"{ti['ti_ma3']:.1f}")
-                c3.metric("TI Signal (EMA7)", f"{ti['ti_signal']:.1f}")
+                st.metric("TI Signal (EMA7)", f"{ti['ti_signal']:.1f}")
                 st.caption("TI ≥75: 🔴 과열 | 40~74: 🟡 중립 | <40: 🟢 매집 구간")
                 if ti.get("chart"):
                     with st.expander("📊 거래대금 강도 차트 보기"):
@@ -3001,7 +3310,7 @@ with tab3:
                                             font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
-                        st.plotly_chart(_fig,use_container_width=True)
+                        st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
                 st.divider()
 
         st.divider()
@@ -3009,7 +3318,7 @@ with tab3:
         if _eff_trading:
             try:
                 df_txi = pd.read_excel(_eff_trading, sheet_name=0, engine="openpyxl")
-                st.markdown('<p class="zone-header">📊 거래대금 강도 〔Excel RotationRate〕</p>', unsafe_allow_html=True)
+                st.markdown('<p class="zone-header">📊 거래 활성도 (Excel)</p>', unsafe_allow_html=True)
                 date_col_xi = df_txi.columns[0]
                 rr_col = next((c for c in df_txi.columns if 'Rotation' in str(c) or 'rotation' in str(c) or '회전' in str(c)), None)
                 close_col_xi = next((c for c in df_txi.columns if '종가' in str(c)), None)
@@ -3035,7 +3344,7 @@ with tab3:
                                         showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_rr.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
                     fig_rr.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    st.plotly_chart(fig_rr, use_container_width=True)
+                    st.plotly_chart(fig_rr, use_container_width=True, config={"scrollZoom": False})
                     st.caption(f"컬럼: {rr_col} | 출처: 국장 거래대금 강도 Excel")
                 else:
                     st.warning(f"_RotationRate_ 컬럼 미감지. 컬럼 목록: {list(df_txi.columns)}")
@@ -3043,8 +3352,8 @@ with tab3:
                 st.error(f"거래대금 강도 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown('<p class="zone-header">📡 외국인 수급</p>', unsafe_allow_html=True)
-        st.caption("한국 종목(.KS/.KQ)만 지원 | 네이버 파이낸스 외국인 순매수 60일")
+        st.markdown('<p class="zone-header">📡 외국인 매매</p>', unsafe_allow_html=True)
+        st.caption("외국인이 60일간 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3058,12 +3367,12 @@ with tab3:
             st.markdown(f"#### 📌 **{t}** {kr}")
             f_sign = "+" if so["frgn_agg_bil"] >= 0 else ""
             i_sign = "+" if so["inst_agg_bil"] >= 0 else ""
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             c1.metric("20일 외국인", f"{f_sign}{so['frgn_agg_bil']:.1f}억",
                       "🟢 순매수" if so["frgn_agg_bil"] >= 0 else "🔴 순매도")
             c2.metric("20일 기관", f"{i_sign}{so['inst_agg_bil']:.1f}억",
                       "🟢 순매수" if so["inst_agg_bil"] >= 0 else "🔴 순매도")
-            c3.metric("현재가", f"{so['latest_close']:,}원")
+            st.metric("현재가", f"{so['latest_close']:,}원")
             ch = so["chart"]
             # 외국인/기관 2행 차트
             fig_so = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -3091,11 +3400,11 @@ with tab3:
             )
             fig_so.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_so.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-            st.plotly_chart(fig_so, use_container_width=True)
+            st.plotly_chart(fig_so, use_container_width=True, config={"scrollZoom": False})
             st.divider()
 
-        st.markdown('<p class="zone-header">🏦 기관 수급 〔KRX 자동〕</p>', unsafe_allow_html=True)
-        st.caption("개별 종목 기관/외국인 순매수 — KRX (pykrx) | 한국 종목(.KS/.KQ)만 지원")
+        st.markdown('<p class="zone-header">🏦 기관 매매</p>', unsafe_allow_html=True)
+        st.caption("기관이 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3132,4 +3441,100 @@ with tab3:
                                   font_color="#e0e0e0", legend=dict(orientation="h", y=1.08))
             fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_si.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-            st.plotly_chart(fig_si, use_container_width=True)
+            st.plotly_chart(fig_si, use_container_width=True, config={"scrollZoom": False})
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 탭 4: 종목 선정
+# ─────────────────────────────────────────────────────────────────────────────
+with tab4:
+    st.info("**지금 가장 유망한 종목을 자동으로 골라드립니다.** 버튼을 누르면 강한 섹터 안에서 수급·모멘텀 기준 상위 종목 순위를 보여드립니다. 1~2분 소요됩니다.")
+    st.markdown('<p class="zone-header">🎯 지금 담을 종목</p>', unsafe_allow_html=True)
+
+    _c_btn, _c_n = st.columns([5, 1])
+    with _c_n:
+        _top_n = st.number_input("종목 수", min_value=10, max_value=50, value=20, step=5,
+                                  key="comp_topn", label_visibility="collapsed")
+    with _c_btn:
+        if st.button("▶ 스크리닝 실행", key="composite_run",
+                     use_container_width=True, type="primary"):
+            with st.spinner("섹터 분석 → 수급 수집 → 종합 점수 계산 중... (1~2분)"):
+                _comp_res = get_composite_score(top_n=int(_top_n))
+            st.session_state["c_composite"] = _comp_res
+
+    if "c_composite" in st.session_state:
+        _comp = st.session_state["c_composite"]
+        if "error" in _comp:
+            st.error(_comp["error"])
+        else:
+            _rows     = _comp.get("results", [])
+            _has_sup  = _comp.get("has_supply", False)
+            _str_secs = _comp.get("strong_sectors", [])
+
+            # ── 섹터 현황 태그 ──
+            _all_secs = ["반도체","방산","조선","2차전지","바이오","K뷰티","로봇","자동차","원전","게임/엔터","금융"]
+            _sec_html = " ".join(
+                f'<span class="sector-tag on">✓ {s}</span>' if s in _str_secs
+                else f'<span class="sector-tag">{s}</span>'
+                for s in _all_secs
+            )
+            st.markdown(f'<div style="margin:0.5rem 0 0.3rem">{_sec_html}</div>',
+                        unsafe_allow_html=True)
+            st.caption(f"초록 = KOSPI 대비 강한 섹터 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
+
+            # ── 뱃지 ──
+            _bz   = [r for r in _rows if r.get("grade","").startswith("🏚️")]
+            _star = [r for r in _rows if r.get("grade","").startswith("⭐")]
+            _good = [r for r in _rows if r.get("grade","").startswith("✅")]
+            if _bz or _star or _good:
+                _bh  = "".join(f'<span class="badge-bz">🏚️ 빈집전환 {r["name"]}</span>' for r in _bz)
+                _bh += "".join(f'<span class="badge-star">⭐ {r["name"]} {r["score"]:.0f}</span>' for r in _star)
+                _bh += "".join(f'<span class="badge-good">✅ {r["name"]} {r["score"]:.0f}</span>' for r in _good)
+                st.markdown(f'<div style="margin:0.6rem 0 0.8rem">{_bh}</div>',
+                            unsafe_allow_html=True)
+            if _comp.get("binzip_count", 0) == 0:
+                st.caption("🏚️ 빈집전환 종목 없음 — 현재 강한 섹터 내 수급 바닥+전환 종목이 없습니다")
+
+            if _rows:
+                _df_comp = pd.DataFrame(_rows)
+                _df_disp = _df_comp.rename(columns={
+                    "grade":"등급","sector":"섹터","name":"종목명","score":"종합",
+                    "rs":"RS","supply":"수급","momentum":"모멘텀","volume":"거래대금","high52":"신고가"
+                })[["등급","섹터","종목명","종합","RS","수급","모멘텀","거래대금","신고가"]]
+
+                st.dataframe(
+                    _df_disp, use_container_width=True, hide_index=True,
+                    column_config={
+                        "종합":    st.column_config.ProgressColumn("종합점수",  min_value=0, max_value=100, format="%.1f"),
+                        "RS":      st.column_config.ProgressColumn("RS",        min_value=0, max_value=100, format="%.0f"),
+                        "수급":    st.column_config.ProgressColumn("수급",      min_value=0, max_value=100, format="%.0f"),
+                        "모멘텀":  st.column_config.ProgressColumn("모멘텀",    min_value=0, max_value=100, format="%.0f"),
+                        "거래대금":st.column_config.ProgressColumn("거래대금",  min_value=0, max_value=100, format="%.0f"),
+                        "신고가":  st.column_config.ProgressColumn("52주신고가",min_value=0, max_value=100, format="%.0f"),
+                    }
+                )
+
+                with st.expander("📊 신호별 점수 차트"):
+                    _top15 = _rows[:15][::-1]
+                    _cn  = [r["name"]     for r in _top15]
+                    _sup = [r["supply"]   or 0 for r in _top15]
+                    _rs  = [r["rs"]       or 0 for r in _top15]
+                    _mom = [r["momentum"] or 0 for r in _top15]
+                    _vol = [r["volume"]   or 0 for r in _top15]
+                    _h52 = [r["high52"]   or 0 for r in _top15]
+                    _fig4 = go.Figure()
+                    _fig4.add_trace(go.Bar(name="수급 30%",    x=[v*0.30 for v in _sup], y=_cn, orientation='h', marker_color="#4CAF50", text=[f"{v:.0f}" for v in _sup], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="RS 25%",      x=[v*0.25 for v in _rs],  y=_cn, orientation='h', marker_color="#2196F3", text=[f"{v:.0f}" for v in _rs],  textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="모멘텀 20%",  x=[v*0.20 for v in _mom], y=_cn, orientation='h', marker_color="#9C27B0", text=[f"{v:.0f}" for v in _mom], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="거래대금 15%",x=[v*0.15 for v in _vol], y=_cn, orientation='h', marker_color="#FF9800", text=[f"{v:.0f}" for v in _vol], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="신고가 10%",  x=[v*0.10 for v in _h52], y=_cn, orientation='h', marker_color="#F44336", text=[f"{v:.0f}" for v in _h52], textposition='inside'))
+                    _fig4.update_layout(
+                        barmode="stack", height=max(400, len(_cn)*30),
+                        margin=dict(l=10, r=40, t=10, b=10),
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
+                        xaxis_title="점수 기여 (합계 = 종합점수)"
+                    )
+                    st.plotly_chart(_fig4, use_container_width=True, config={"scrollZoom": False})
+
+    st.divider()
+    st.caption("⭐ 강력: RS≥65 + 수급≥65  ·  ✅ 유망: RS≥55 + 수급≥55  ·  점수는 강한 섹터 내 백분위")
