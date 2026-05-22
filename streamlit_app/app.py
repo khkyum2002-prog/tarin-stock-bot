@@ -81,12 +81,11 @@ div[data-testid="metric-container"] {
 
 /* ── 섹션 헤더 (zone-header) ── */
 .zone-header {
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    color: #7d8590;
-    text-transform: uppercase;
-    margin: 1.8rem 0 0.8rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #c9d1d9;
+    margin: 1.8rem 0 0.6rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid #21262d;
     display: block;
@@ -2286,9 +2285,8 @@ def _osc_bar_chart(dates, osc_vals, height=220):
 # 탭 1: 미국 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
-    st.caption("미국 장 마감 후 (한국 오전 6~7시) 실행 권장")
-
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+    st.info("**지금 미국 주식을 사도 되는 타이밍인지 확인합니다.** 미국 장 마감 후(한국 오전 6~7시)에 버튼을 누르세요.")
+    with st.expander("❓ 어려운 용어 설명"):
         st.markdown("**🐤 카나리아** — 시장 진입 신호. 나스닥·물가채 모멘텀이 모두 양수면 공격(주식), 하나라도 음수면 방어(현금·채권)")
         st.markdown("**🌡️ BOFA 열기** — 시장 과열도 0~10점. 7.5↑ 과열 / 2.5↓ 안전")
         st.markdown("**🩸 블러드** — 채권 스트레스 지수. 60일 평균 위=안전, 아래=주의")
@@ -2315,7 +2313,7 @@ with tab1:
         prog.empty()
 
         # ── 1. 종합 신호 ──
-        st.markdown('<p class="zone-header">📊 종합 신호</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📊 지금 시장은?</p>', unsafe_allow_html=True)
         c1,c2 = st.columns(2)
         if canary and "error" not in canary:
             color = "sig-green" if canary["mode"]=="공격" else "sig-red"
@@ -2334,8 +2332,8 @@ with tab1:
         st.divider()
 
         # ── 2. 공포·탐욕 오실레이터 ──
-        st.markdown('<p class="zone-header">😱 공포·탐욕 오실레이터 — 시장 심리 지수</p>', unsafe_allow_html=True)
-        st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)")
+        st.markdown('<p class="zone-header">😱 시장 심리 — 지금 탐욕인가 공포인가</p>', unsafe_allow_html=True)
+        st.caption("양수(+) = 탐욕 → 과열 주의 | 음수(-) = 공포 → 매수 기회일 수 있음")
         _fg_r1 = st.columns(3)
         _fg_r2 = st.columns(3)
         if fg and "error" not in fg:
@@ -2370,8 +2368,8 @@ with tab1:
         st.divider()
 
         # ── 3. 코포크 + ZBT ──
-        st.markdown('<p class="zone-header">📈 중장기 추세 지표</p>', unsafe_allow_html=True)
-        st.caption("코포크: 중장기 추세 지표 — 양수(+)이고 상승 중이면 매수 유리한 구간")
+        st.markdown('<p class="zone-header">📈 중장기 방향 — 지금 상승세인가</p>', unsafe_allow_html=True)
+        st.caption("코포크가 양수(+)이고 상승 중이면 중장기 매수 유리 | ZBT: 급락 후 반등 신호")
         _cp1, _cp2 = st.columns(2)
         with _cp1:
             st.caption("표준 코포크 (중장기)")
@@ -2398,8 +2396,8 @@ with tab1:
         st.divider()
 
         # ── 4. RS 상위 종목 ──
-        st.markdown('<p class="zone-header">🏆 강한 종목 순위 (상대강도 상위)</p>', unsafe_allow_html=True)
-        st.caption("같은 기간 다른 종목보다 더 많이 오른 종목 순위. 강한 종목이 계속 강한 경향이 있음")
+        st.markdown('<p class="zone-header">🏆 지금 강한 종목 TOP10</p>', unsafe_allow_html=True)
+        st.caption("다른 종목보다 더 많이 오른 종목 순위 — 강한 종목이 계속 강한 경향이 있습니다")
         c1,c2 = st.columns(2)
         with c1:
             st.caption("S&P500 Top 10")
@@ -2419,7 +2417,7 @@ with tab1:
         st.divider()
 
         # ── 5. 섹터 ETF RS ──
-        st.markdown('<p class="zone-header">🏭 미국 업종별 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 어떤 업종이 강한가</p>', unsafe_allow_html=True)
         st.caption("🟢 강세(70↑) = 지금 돈이 몰리는 업종 / 🔴 약세(50↓) = 자금이 빠지는 업종")
         if us_sector and "error" not in us_sector:
             df_s=pd.DataFrame(us_sector["sectors"])
@@ -2435,6 +2433,7 @@ with tab1:
 # 탭 2: 국내 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
+    st.info("**오늘 한국 시장을 한눈에 파악합니다.** 장 마감 후(오후 4시 이후)에 분석 버튼을 누르세요. 강한 업종·수급·ETF 순위를 보여드립니다.")
     # ── KST 시간 + 자동 업데이트 ──
     import datetime as _dt
     _kst = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
@@ -2466,7 +2465,7 @@ with tab2:
     if _is_after_close and _is_weekday and not st.session_state.get(_auto_ran_key):
         st.info("장 마감 후입니다. **▶ 국내 시장 분석 시작** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
 
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+    with st.expander("❓ 어려운 용어 설명"):
         st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 강함 / 음수=파는 힘 강함")
         st.markdown("**💪 상대강도(RS)** — 다른 ETF 대비 강도. 70점↑ 강세 / 50점↓ 약세")
         st.markdown("**🏠 빈집 주도주** — 주도 업종 중 아직 덜 오른 종목. 따라 오를 가능성")
@@ -2475,7 +2474,7 @@ with tab2:
         st.markdown("**💧 CMF(자금흐름)** — 양수=자금 유입(매수 우세) / 음수=자금 유출(매도 우세)")
         st.markdown("**📊 오실레이터** — 기준선(0) 위=상승 추세 / 아래=하락 추세")
 
-    st.markdown('<p class="zone-header">시장 스캔</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📡 오늘 시장 현황</p>', unsafe_allow_html=True)
 
     # 자동 새로고침으로 재진입하거나 버튼 클릭 시 실행
     _should_run = st.button("▶ 국내 시장 분석 시작", type="primary", use_container_width=True, key="kr_run")
@@ -2491,7 +2490,7 @@ with tab2:
         st.caption(f"🕐 마지막 업데이트: {_kst.strftime('%Y-%m-%d %H:%M')} KST")
 
         # ── 지수 현황 ──
-        st.markdown('<p class="zone-header">📊 지수 현황</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📊 코스피·코스닥 현황</p>', unsafe_allow_html=True)
         if market and "error" not in market:
             kp=market["kospi"]; kq=market["kosdaq"]
             st.caption(f"기준: {market['date']} KST | 출처: 네이버 실시간")
@@ -2522,7 +2521,7 @@ with tab2:
         st.divider()
 
         # ── 업종 강세/약세 ──
-        st.markdown('<p class="zone-header">🏭 오늘 강한 업종 / 약한 업종</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏭 오늘 강한 업종 vs 약한 업종</p>', unsafe_allow_html=True)
         if sector and "error" not in sector:
             c1,c2=st.columns(2)
             with c1:
@@ -2538,7 +2537,7 @@ with tab2:
         st.divider()
 
         # ── 수급 오실레이터 ──
-        st.markdown('<p class="zone-header">💹 외국인·기관 수급 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">💹 외국인·기관 매매 동향</p>', unsafe_allow_html=True)
         st.caption("양수(+) = 외국인·기관이 사는 힘이 강함 / 음수(-) = 파는 힘이 강함")
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
@@ -2555,7 +2554,7 @@ with tab2:
         st.divider()
 
         # ── 한국 ETF RS ──
-        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 강도 순위</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🇰🇷 한국 ETF 순위</p>', unsafe_allow_html=True)
         st.caption("🟢 강세(70↑) = 지금 자금이 몰리는 ETF / 70점 이상 ETF 업종 위주로 종목 탐색 추천")
         if kr_etf and "error" not in kr_etf:
             show=kr_etf.get("strong") or kr_etf.get("all",[])[:10]
@@ -2601,8 +2600,8 @@ with tab2:
     st.divider()
 
     # ── 한국 개별종목 RS ──
-    st.markdown('<p class="zone-header">📈 강한 종목 순위 (개별종목 상대강도)</p>', unsafe_allow_html=True)
-    st.caption("같은 기간 코스피·코스닥 전체 대비 더 많이 오른 종목 순위. 70점 이상이면 강세")
+    st.markdown('<p class="zone-header">📈 강한 종목 순위</p>', unsafe_allow_html=True)
+    st.caption("코스피·코스닥 전체 대비 더 많이 오른 종목 순위 — 70점 이상이면 강세")
     rs_xl_file = st.file_uploader(
         "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
         help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
@@ -2659,7 +2658,7 @@ with tab2:
     st.divider()
 
     # ── 한국 ETF RS ──
-    st.markdown('<p class="zone-header">📊 한국 ETF 강도 순위 (정밀)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📊 ETF 정밀 순위</p>', unsafe_allow_html=True)
     st.caption("Excel 파일 업로드 시 더 정확한 데이터로 계산 / 없으면 자동으로 수집")
     etf_rs_xl_file = st.file_uploader(
         "etf상대강도데이터.xlsx 업로드 (선택 — 없으면 자동 수집)", type=["xlsx"], key="etf_rs_xl_file",
@@ -2722,9 +2721,9 @@ with tab2:
     st.divider()
 
     # ── 한국 F&G 오실레이터 ──
-    st.markdown('<p class="zone-header">😨 한국 공포·탐욕 오실레이터</p>', unsafe_allow_html=True)
-    st.caption("양수(+) = 탐욕(과열 주의) / 음수(-) = 공포(매수 기회)  |  자동: 참고용 / Excel: 정밀 분석")
-    st.caption("자동(참고용): 무료 대체지표로 방향성만 확인  |  Excel(정밀): 원본 VKOSPI·국채선물·P/C ATM")
+    st.markdown('<p class="zone-header">😨 한국 시장 심리 — 공포인가 탐욕인가</p>', unsafe_allow_html=True)
+    st.caption("양수(+) = 탐욕 → 과열 주의 | 음수(-) = 공포 → 매수 기회일 수 있음")
+    st.caption("자동(참고용): 방향성만 확인  |  Excel(정밀): VKOSPI·국채선물 원본 데이터 분석")
     if st.button("▶ 자동 계산 〔참고용〕", key="kr_fg_auto_run", use_container_width=True, type="primary"):
             with st.spinner("한국 F&G 오실레이터 자동 계산 중..."):
                 kr_fg_auto = get_kr_fg_auto()
@@ -2755,8 +2754,8 @@ with tab2:
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
-    st.caption("📂 피어앤그리드.xlsx (KOSPI / KOSDAQ 시트) — 정밀 분석")
-    fg_file = st.file_uploader("피어앤그리드.xlsx 업로드", type=["xlsx"], key="kr_fg_file")
+    st.caption("📂 정밀 분석: 피어앤그리드.xlsx 파일이 있으면 아래에 업로드하세요 (KOSPI / KOSDAQ 시트 포함)")
+    fg_file = st.file_uploader("피어앤그리드.xlsx", type=["xlsx"], key="kr_fg_file")
     if fg_file:
         try:
             fg_file.seek(0)
@@ -2817,7 +2816,7 @@ with tab2:
     st.divider()
 
     # ── 수급 자동 스크리닝 ──
-    st.markdown('<p class="zone-header">📡 외국인 수급 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📡 외국인 매매 동향</p>', unsafe_allow_html=True)
     st.caption("외국인 순매수 누적 | 기관 데이터는 무료소스 없음 — 방향성만 참고")
     col_sa, col_sb = st.columns([1,2])
     with col_sa:
@@ -2892,8 +2891,8 @@ with tab2:
     st.divider()
 
     # ── KRX 기관 순매수 + 거래대금 강도 ──
-    st.markdown('<p class="zone-header">🏦 기관 순매수 + 거래대금 강도 〔KRX 자동〕</p>', unsafe_allow_html=True)
-    st.caption("KOSPI/KOSDAQ 시장 전체 기관·외국인 순매수 + 거래대금 강도 | 출처: KRX (pykrx)")
+    st.markdown('<p class="zone-header">🏦 기관 매매 동향</p>', unsafe_allow_html=True)
+    st.caption("KOSPI/KOSDAQ 전체 기관·외국인 순매수 + 거래대금 강도 | 출처: KRX")
     if st.button("▶ 기관 수급 + 거래대금 강도 조회 (KRX)", key="kr_inst_flow_run", use_container_width=True):
         with st.spinner("KRX 데이터 수집 중 (10~20초)..."):
             inst_flow = get_krx_inst_market_flow(days=10)
@@ -2940,8 +2939,8 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 자동 ──
-    st.markdown('<p class="zone-header">🤖 컨센서스 스크리닝 〔참고용〕</p>', unsafe_allow_html=True)
-    st.caption("WiseReport: EPS성장률+매수비율+TP인상비율 합산 스코어 (원본과 근사치)")
+    st.markdown('<p class="zone-header">🤖 전문가 전망 순위</p>', unsafe_allow_html=True)
+    st.caption("증권사 전망이 좋아지는 종목 순위 — EPS성장률·매수비율·목표가 인상 합산 (참고용)")
     if st.button("▶ 컨센서스 스크리닝 〔참고용〕", key="kr_consensus_auto_run", use_container_width=True):
         with st.spinner(f"한국 주요 종목 {len(KR_STOCKS)}개 컨센서스 수집 중... (60~90초)"):
             cons_auto = get_kr_consensus_auto(top_n=20)
@@ -2973,7 +2972,7 @@ with tab2:
     st.divider()
 
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
-    st.markdown('<p class="zone-header">📋 컨센 가속 & 수급 〔Excel 정밀〕</p>', unsafe_allow_html=True)
+    st.markdown('<p class="zone-header">📋 Excel 정밀 분석</p>', unsafe_allow_html=True)
     st.caption("📂 데이터 정리.xlsx (db 시트) — 원본 EPS가속(1M>3M) + 외국인/기관 교집합")
     consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
     if consensus_file:
@@ -3009,7 +3008,8 @@ with tab2:
 # 탭 3: 종목 분석
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    with st.expander("📖 용어 설명 — 처음이시면 읽어보세요"):
+    st.info("**관심 종목을 직접 분석합니다.** 아래에 종목명이나 티커(예: 삼성전자, NVDA)를 입력하고 분석 버튼을 누르세요.")
+    with st.expander("❓ 어려운 용어 설명"):
         st.markdown("**💧 CMF(자금흐름)** — 양수=자금 유입(매수 우세) / 음수=자금 유출(매도 우세)")
         st.markdown("**⚡ 임펄스** — 단기 추세. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락")
         st.markdown("**🔢 TD 카운트** — 패턴 카운트 1~9. 9에 가까울수록 추세 전환 주의")
@@ -3019,15 +3019,15 @@ with tab3:
         st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 / 음수=파는 힘")
         st.markdown("**📋 컨센서스** — 증권사 실적 전망치. 전망이 올라가는 종목이 주가도 오르는 경향")
 
-    st.markdown('<p class="zone-header">🎯 지정가 매수 타점 분석</p>', unsafe_allow_html=True)
-    st.caption("1년 데이터 기반 — 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
+    st.markdown('<p class="zone-header">🎯 언제 사면 좋을까 — 매수 타점</p>', unsafe_allow_html=True)
+    st.caption("1년 데이터 기반 — 시가 대비 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
 
     _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()], key=lambda x: x[0])
     sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
     ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
 
     st.divider()
-    with st.expander("📂 추가 Excel 업로드 (선택) — 더 정밀한 분석을 원할 때"):
+    with st.expander("📂 Excel 파일 추가 (선택) — 더 정밀하게 보고 싶을 때"):
         trend_supply_file = st.file_uploader(
             "① 추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
             help="DB(2) 시트 — 5일간 기관 매수수량 오실레이터 추가"
@@ -3067,7 +3067,7 @@ with tab3:
 
         # ── DART 기업 프로필 ──────────────────────────────────────────────────
         _dart_key = st.secrets.get("DART_API_KEY", "") if hasattr(st, "secrets") else ""
-        st.markdown('<p class="zone-header">🏢 기업 프로필 〔DART 보고서〕</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">🏢 기업 정보</p>', unsafe_allow_html=True)
         if not _dart_key:
             st.caption("DART API 키가 설정되지 않았습니다. Streamlit Secrets에 DART_API_KEY를 추가하면 분기/사업보고서 핵심 내용(사업개요·주요제품·수주현황)을 자동으로 표시합니다.")
         elif not kr_tickers:
@@ -3135,7 +3135,7 @@ with tab3:
                 st.divider()
 
         st.divider()
-        st.markdown('<p class="zone-header">📊 주간 CMF 추세판별기</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">📊 주간 추세 — 자금이 들어오는가</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 주간 추세 분석 중..."):
                 wt = get_weekly_trend(t)
@@ -3187,7 +3187,7 @@ with tab3:
                     st.error(f"추세판별기(주간) Excel 오류: {wkr['error']}")
                 else:
                     st.divider()
-                    st.markdown('<p class="zone-header">📅 주간 추세판별기 〔Excel HTS〕</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="zone-header">📅 주간 추세 (Excel HTS)</p>', unsafe_allow_html=True)
                     st.caption(f"시트: {_wk_sn} | {wkr['rows']}주 | {wkr['date_range']}")
                     c1, c2 = st.columns(2)
                     c1.metric("CMF (4주)", f"{wkr['cmf']:.4f}", "🟢 자금유입" if wkr['cmf'] > 0 else "🔴 자금유출")
@@ -3236,7 +3236,7 @@ with tab3:
                 close_col_tsd = next((c for c in df_tsd.columns if '종가' in str(c)), None)
                 buy_label = buy_col if buy_col else "매수수량"
                 sell_label = sell_col if sell_col else "매도수량"
-                st.markdown('<p class="zone-header">🏦 추세판별기 수급 〔Excel〕</p>', unsafe_allow_html=True)
+                st.markdown('<p class="zone-header">🏦 수급 데이터 (Excel)</p>', unsafe_allow_html=True)
                 if buy_col and close_col_tsd:
                     df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
                     df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
@@ -3274,7 +3274,7 @@ with tab3:
                 st.error(f"추세판별기 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown('<p class="zone-header">💰 거래대금 강도</p>', unsafe_allow_html=True)
+        st.markdown('<p class="zone-header">💰 거래 활성도 — 돈이 몰리는가</p>', unsafe_allow_html=True)
         for t in tickers_to_run:
             with st.spinner(f"{t} 거래대금 강도 분석 중..."):
                 ti = get_trading_intensity(t)
@@ -3318,7 +3318,7 @@ with tab3:
         if _eff_trading:
             try:
                 df_txi = pd.read_excel(_eff_trading, sheet_name=0, engine="openpyxl")
-                st.markdown('<p class="zone-header">📊 거래대금 강도 〔Excel RotationRate〕</p>', unsafe_allow_html=True)
+                st.markdown('<p class="zone-header">📊 거래 활성도 (Excel)</p>', unsafe_allow_html=True)
                 date_col_xi = df_txi.columns[0]
                 rr_col = next((c for c in df_txi.columns if 'Rotation' in str(c) or 'rotation' in str(c) or '회전' in str(c)), None)
                 close_col_xi = next((c for c in df_txi.columns if '종가' in str(c)), None)
@@ -3352,8 +3352,8 @@ with tab3:
                 st.error(f"거래대금 강도 파일 읽기 오류: {e}")
 
         st.divider()
-        st.markdown('<p class="zone-header">📡 외국인 수급</p>', unsafe_allow_html=True)
-        st.caption("한국 종목(.KS/.KQ)만 지원 | 네이버 파이낸스 외국인 순매수 60일")
+        st.markdown('<p class="zone-header">📡 외국인 매매</p>', unsafe_allow_html=True)
+        st.caption("외국인이 60일간 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3403,8 +3403,8 @@ with tab3:
             st.plotly_chart(fig_so, use_container_width=True, config={"scrollZoom": False})
             st.divider()
 
-        st.markdown('<p class="zone-header">🏦 기관 수급 〔KRX 자동〕</p>', unsafe_allow_html=True)
-        st.caption("개별 종목 기관/외국인 순매수 — KRX (pykrx) | 한국 종목(.KS/.KQ)만 지원")
+        st.markdown('<p class="zone-header">🏦 기관 매매</p>', unsafe_allow_html=True)
+        st.caption("기관이 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3447,7 +3447,8 @@ with tab3:
 # 탭 4: 종목 선정
 # ─────────────────────────────────────────────────────────────────────────────
 with tab4:
-    st.markdown('<p class="zone-header">🎯 종목 선정</p>', unsafe_allow_html=True)
+    st.info("**지금 가장 유망한 종목을 자동으로 골라드립니다.** 버튼을 누르면 강한 섹터 안에서 수급·모멘텀 기준 상위 종목 순위를 보여드립니다. 1~2분 소요됩니다.")
+    st.markdown('<p class="zone-header">🎯 지금 담을 종목</p>', unsafe_allow_html=True)
 
     _c_btn, _c_n = st.columns([5, 1])
     with _c_n:
