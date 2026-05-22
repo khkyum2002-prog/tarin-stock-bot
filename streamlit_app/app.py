@@ -2249,7 +2249,7 @@ def calc_consensus_excel(df_db):
 
 # ── 공통 차트 헬퍼 ──
 def _chart_layout(fig, height=360):
-    fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10),
+    fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10, dragmode=False),
                       plot_bgcolor='#0d1117', paper_bgcolor='rgba(0,0,0,0)',
                       font=dict(color='#c9d1d9', family='Inter, sans-serif'),
                       legend=dict(orientation='h', y=1.08, bgcolor='rgba(0,0,0,0)',
@@ -2257,7 +2257,8 @@ def _chart_layout(fig, height=360):
                       xaxis=dict(showgrid=True, gridcolor='#21262d', gridwidth=1,
                                  zeroline=False, color='#7d8590'),
                       yaxis=dict(showgrid=True, gridcolor='#21262d', gridwidth=1,
-                                 zeroline=False, color='#7d8590'))
+                                 zeroline=False, color='#7d8590'),
+                      dragmode=False)
     fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
     fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.07)')
     return fig
@@ -2268,7 +2269,7 @@ def _rs_bar_chart(items, name_key="name", val_key="norm_rs", height=320):
     colors = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in vals]
     fig = go.Figure(go.Bar(x=vals, y=names, orientation='h', marker_color=colors,
                            text=[f"{v:.1f}" for v in vals], textposition='outside'))
-    fig.update_layout(xaxis_range=[0,112], height=max(height, len(names)*26),
+    fig.update_layout(xaxis_range=[0,112], height=max(height, len(names, dragmode=False)*26),
                       margin=dict(l=10,r=50,t=10,b=10),
                       plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
     fig.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
@@ -2357,7 +2358,7 @@ with tab1:
                     _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ndx_osc"],name="NASDAQ",line=dict(color="#00B3B3",width=2)))
                     _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spy"],name="SPY가격",yaxis="y2",line=dict(color="#666",width=1.5,dash="dot")))
                     _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)")
-                    _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False),
+                    _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False, dragmode=False),
                                         height=320,margin=dict(l=10,r=60,t=20,b=10),
                                         plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
                                         font_color='#e0e0e0',legend=dict(orientation='h',y=1.08))
@@ -2575,7 +2576,8 @@ with tab2:
                                     xaxis_title="KOSPI 대비 초과수익률 (%)",
                                     height=max(320,len(_names)*26),
                                     margin=dict(l=10,r=70,t=10,b=10),
-                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+                                    plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0',
+                                    dragmode=False)
                 _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
                 st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
         elif kr_etf: st.error(kr_etf.get("error"))
@@ -2651,7 +2653,8 @@ with tab2:
                                 xaxis_title="KOSPI 대비 초과수익률 (%)",
                                 height=max(300,len(_names)*28),
                                 margin=dict(l=10,r=70,t=10,b=10),
-                                plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0')
+                                plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',font_color='#e0e0e0',
+                                dragmode=False)
             _fig.add_vline(x=0,line_dash="solid",line_color="#888888",opacity=0.8)
             st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
 
@@ -2714,7 +2717,8 @@ with tab2:
                                  xaxis_title="KOSPI 대비 초과수익률 (%)",
                                  height=max(320, len(_names_e)*26),
                                  margin=dict(l=10,r=70,t=10,b=10),
-                                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+                                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0',
+                                 dragmode=False)
             _fig_e.add_vline(x=0, line_dash="solid", line_color="#888888", opacity=0.8)
             st.plotly_chart(_fig_e, use_container_width=True, config={"scrollZoom": False})
 
@@ -2748,7 +2752,7 @@ with tab2:
                             _fig.add_trace(go.Bar(x=ch["dates"], y=ch["osc"], name="Oscillator",
                                                    marker_color=_osc_colors), row=2, col=1)
                             _fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
-                            _fig.update_layout(height=400, margin=dict(l=10,r=20,t=40,b=10),
+                            _fig.update_layout(height=400, margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
                                                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                                                font_color='#e0e0e0', showlegend=False)
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
@@ -2806,7 +2810,7 @@ with tab2:
                                            fill='tozeroy',fillcolor='rgba(0,179,179,0.15)'),row=2,col=1)
                 _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=1,col=1)
                 _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
-                _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10),
+                _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
                                     plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
                                     font_color='#e0e0e0',showlegend=False)
                 _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
@@ -2857,7 +2861,7 @@ with tab2:
                         fig_s.add_trace(go.Scatter(x=ch["dates"],y=ch["price"],
                             name="종가",line=dict(color="#E0E0E0",width=1.5),
                             showlegend=(row_i==1)),row=row_i,col=1,secondary_y=True)
-                    fig_s.update_layout(height=480,margin=dict(l=10,r=60,t=40,b=10),
+                    fig_s.update_layout(height=480,margin=dict(l=10,r=60,t=40,b=10, dragmode=False),
                         plot_bgcolor="rgba(0,0,0,0)",paper_bgcolor="rgba(0,0,0,0)",
                         font_color="#e0e0e0",barmode="overlay",
                         legend=dict(orientation="h",y=1.05))
@@ -2930,7 +2934,7 @@ with tab2:
                         fig_inst.add_trace(go.Bar(x=d["dates"], y=[v/1e8 for v in d["frgn"]],
                                                   name="외국인", marker_color=bc_f, opacity=0.6))
                     fig_inst = _chart_layout(fig_inst, height=200)
-                    fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원)")
+                    fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원, dragmode=False)")
                     fig_inst.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
                     st.plotly_chart(fig_inst, use_container_width=True, config={"scrollZoom": False})
         else:
@@ -3166,7 +3170,7 @@ with tab3:
                         _fig.add_trace(go.Bar(x=ch["dates"],y=ch["cmf"],name="CMF",
                                                marker_color=_cmf_colors),row=2,col=1)
                         _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
-                        _fig.update_layout(height=400,margin=dict(l=10,r=20,t=40,b=10),
+                        _fig.update_layout(height=400,margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
                                             plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
                                             font_color='#e0e0e0',showlegend=True,
                                             legend=dict(orientation='h',y=1.08))
@@ -3211,7 +3215,7 @@ with tab3:
                             _fig2.add_trace(go.Bar(x=_ch["dates"], y=_ch["cmf"], name="CMF",
                                                    marker_color=_cmf_colors2), row=2, col=1)
                             _fig2.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
-                            _fig2.update_layout(height=400, margin=dict(l=10, r=20, t=40, b=10),
+                            _fig2.update_layout(height=400, margin=dict(l=10, r=20, t=40, b=10, dragmode=False),
                                                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                                                 font_color='#e0e0e0', showlegend=True,
                                                 legend=dict(orientation='h', y=1.08))
@@ -3258,7 +3262,7 @@ with tab3:
                     fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[close_col_tsd].tolist(), name="종가",
                                                   line=dict(color="#E0E0E0", width=2)), secondary_y=True)
                     fig_tsd.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", secondary_y=False)
-                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10),
+                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10, dragmode=False),
                                           plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                           font_color="#e0e0e0", barmode="overlay",
                                           legend=dict(orientation="h", y=1.08))
@@ -3307,7 +3311,8 @@ with tab3:
                         _fig.update_layout(yaxis_range=[0,100],height=320,
                                             margin=dict(l=10,r=20,t=20,b=10),
                                             plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
-                                            font_color='#e0e0e0',legend=dict(orientation='h',y=1.1))
+                                            font_color='#e0e0e0',legend=dict(orientation='h',y=1.1),
+                                            dragmode=False)
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
@@ -3336,7 +3341,7 @@ with tab3:
                         df_txi[close_col_xi] = pd.to_numeric(df_txi[close_col_xi], errors='coerce')
                         fig_rr.add_trace(go.Scatter(x=dates_xi, y=df_txi[close_col_xi].tolist(), name="종가",
                                                     line=dict(color="#E0E0E0", width=2)), secondary_y=True)
-                    fig_rr.update_layout(height=340, margin=dict(l=10,r=60,t=30,b=10),
+                    fig_rr.update_layout(height=340, margin=dict(l=10,r=60,t=30,b=10, dragmode=False),
                                          plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                          font_color="#e0e0e0", barmode="overlay",
                                          legend=dict(orientation="h", y=1.08))
@@ -3397,6 +3402,7 @@ with tab3:
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 font_color="#e0e0e0", barmode="overlay",
                 legend=dict(orientation="h", y=1.05),
+                dragmode=False,
             )
             fig_so.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_so.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
@@ -3436,7 +3442,7 @@ with tab3:
                 fig_si.add_trace(go.Scatter(x=ch_si["dates"], y=ch_si["frgn_daily"],
                                             name="외국인", line=dict(color="#00B3B3", width=1.5)))
             fig_si.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-            fig_si.update_layout(height=320, margin=dict(l=10,r=30,t=30,b=10),
+            fig_si.update_layout(height=320, margin=dict(l=10,r=30,t=30,b=10, dragmode=False),
                                   plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                   font_color="#e0e0e0", legend=dict(orientation="h", y=1.08))
             fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
@@ -3532,7 +3538,8 @@ with tab4:
                         margin=dict(l=10, r=40, t=10, b=10),
                         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                         font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
-                        xaxis_title="점수 기여 (합계 = 종합점수)"
+                        xaxis_title="점수 기여 (합계 = 종합점수)",
+                        dragmode=False,
                     )
                     st.plotly_chart(_fig4, use_container_width=True, config={"scrollZoom": False})
 
