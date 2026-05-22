@@ -3528,17 +3528,18 @@ with tab4:
                     _vol = [r["volume"]   or 0 for r in _top15]
                     _h52 = [r["high52"]   or 0 for r in _top15]
                     _fig4 = go.Figure()
-                    _fig4.add_trace(go.Bar(name="수급 30%",    x=[v*0.30 for v in _sup], y=_cn, orientation='h', marker_color="#4CAF50", text=[f"{v:.0f}" for v in _sup], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="RS 25%",      x=[v*0.25 for v in _rs],  y=_cn, orientation='h', marker_color="#2196F3", text=[f"{v:.0f}" for v in _rs],  textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="모멘텀 20%",  x=[v*0.20 for v in _mom], y=_cn, orientation='h', marker_color="#9C27B0", text=[f"{v:.0f}" for v in _mom], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="거래대금 15%",x=[v*0.15 for v in _vol], y=_cn, orientation='h', marker_color="#FF9800", text=[f"{v:.0f}" for v in _vol], textposition='inside'))
-                    _fig4.add_trace(go.Bar(name="신고가 10%",  x=[v*0.10 for v in _h52], y=_cn, orientation='h', marker_color="#F44336", text=[f"{v:.0f}" for v in _h52], textposition='inside'))
+                    _fig4.add_trace(go.Bar(name="수급",    x=[v*0.30 for v in _sup], y=_cn, orientation='h', marker_color="#4CAF50"))
+                    _fig4.add_trace(go.Bar(name="RS",      x=[v*0.25 for v in _rs],  y=_cn, orientation='h', marker_color="#2196F3"))
+                    _fig4.add_trace(go.Bar(name="모멘텀",  x=[v*0.20 for v in _mom], y=_cn, orientation='h', marker_color="#9C27B0"))
+                    _fig4.add_trace(go.Bar(name="거래대금",x=[v*0.15 for v in _vol], y=_cn, orientation='h', marker_color="#FF9800"))
+                    _fig4.add_trace(go.Bar(name="신고가",  x=[v*0.10 for v in _h52], y=_cn, orientation='h', marker_color="#F44336"))
                     _fig4.update_layout(
-                        barmode="stack", height=max(400, len(_cn)*30),
-                        margin=dict(l=10, r=40, t=10, b=10),
+                        barmode="stack", height=max(400, len(_cn)*32),
+                        margin=dict(l=10, r=10, t=10, b=90),
                         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
-                        xaxis_title="점수 기여 (합계 = 종합점수)",
+                        font_color="#e0e0e0",
+                        legend=dict(orientation="h", y=-0.18, x=0, xanchor="left",
+                                    font=dict(size=11), bgcolor="rgba(0,0,0,0)"),
                         dragmode=False,
                     )
                     st.plotly_chart(_fig4, use_container_width=True, config={"scrollZoom": False})
