@@ -3016,21 +3016,17 @@ with tab3:
     ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
 
     st.divider()
-    st.caption("📂 추가 Excel 업로드 (선택) — 업로드 시 자동 계산과 함께 정밀 비교 표시")
-    _col_xu1, _col_xu2, _col_xu3 = st.columns(3)
-    with _col_xu1:
+    with st.expander("📂 추가 Excel 업로드 (선택) — 더 정밀한 분석을 원할 때"):
         trend_supply_file = st.file_uploader(
-            "추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
+            "① 추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
             help="DB(2) 시트 — 5일간 기관 매수수량 오실레이터 추가"
         )
-    with _col_xu2:
         trading_xl_file = st.file_uploader(
-            "국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
+            "② 국장 거래대금 강도.xlsx", type=["xlsx"], key="trading_xl_file",
             help="_RotationRate_ 컬럼 — 거래대금 강도 비교 표시"
         )
-    with _col_xu3:
         weekly_xl_file = st.file_uploader(
-            "추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
+            "③ 추세판별기(주간).xlsx", type=["xlsx"], key="weekly_xl_file",
             help="DB 시트 — 주간 OHLCV로 CMF/임펄스/TD 계산 (HTS 원천 데이터)"
         )
     if trend_supply_file:
