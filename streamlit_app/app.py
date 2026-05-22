@@ -139,6 +139,25 @@ div[data-testid="stFileUploader"] {
     border-radius: 8px;
 }
 div[data-testid="stFileUploader"] label { font-size: 0.82rem !important; color: #7d8590; }
+/* 모바일: 업로더 내부 드래그영역 세로 정렬 */
+@media (max-width: 640px) {
+    div[data-testid="stFileUploader"] section {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 8px !important;
+    }
+    div[data-testid="stFileUploader"] section > div {
+        width: 100% !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] {
+        padding: 12px !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] {
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center;
+    }
+}
 
 /* ── 익스팬더 ── */
 div[data-testid="stExpander"] {
