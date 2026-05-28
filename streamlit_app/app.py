@@ -1,4 +1,4 @@
-import io, time, warnings, logging
+import io, os, re, time, warnings, logging
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -204,7 +204,104 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab4, tab2, tab3, tab1 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장"])
+# ─────────────────────────────────────────────────────────────────────────────
+# 사이드바 — 로컬 파일 경로 설정
+# ─────────────────────────────────────────────────────────────────────────────
+_DEFAULT_XL_DIR  = r"C:\Users\khkyu\OneDrive\바탕 화면\태린이주식\20260515"
+_DEFAULT_XL_DIR2 = r"C:\Users\khkyu\OneDrive\바탕 화면\태린이주식\20260515 (2)"
+
+with st.sidebar:
+    st.header("⚙️ 파일 설정")
+    _xl_dir = st.text_input("데이터 폴더", value=_DEFAULT_XL_DIR, key="xl_dir",
+                             help="Excel 파일들이 들어있는 최상위 폴더 경로")
+    _xl_dir2 = st.text_input("수출데이터 폴더", value=_DEFAULT_XL_DIR2, key="xl_dir2",
+                              help="수출데이터 Excel 파일들이 들어있는 폴더")
+
+    _LOCAL_FILES = {
+        "fg":        os.path.join(_xl_dir, "한국피어앤그리드오실레이터", "피어앤그리드.xlsx"),
+        "rs_stock":  os.path.join(_xl_dir, "한국 개별종목 상대강도", "종목상대강도데이터.xlsx"),
+        "rs_etf":    os.path.join(_xl_dir, "한국 etf 활용한 상대강도 추출", "etf상대강도데이터.xlsx"),
+        "trend_wk":  os.path.join(_xl_dir, "차트추세판별기", "추세판별기(주간).xlsx"),
+        "trend_sup": os.path.join(_xl_dir, "차트추세판별기", "추세판별기(수급까지체크).xlsx"),
+        "trading":   os.path.join(_xl_dir, "거래대금 강도를 통해 매수 타이밍 잡기", "국장 거래대금 강도 확인용.xlsx"),
+        "consensus": os.path.join(_xl_dir, "컨센 가속 및 수급 가속반영 등", "데이터 정리.xlsx"),
+        "exp_may":   os.path.join(_xl_dir2, "주요품목별수출정리 5월 잠정(태린이아빠)(매일).xlsx"),
+        "exp_apr":   os.path.join(_xl_dir2, "주요품목별수출정리 4월 확정(태린이아빠)(매일).xlsx"),
+    }
+
+    def _fstatus(k):
+        p = _LOCAL_FILES[k]
+        return ("✅", p) if os.path.exists(p) else ("❌", p)
+
+    def _local_bytes(k):
+        p = _LOCAL_FILES[k]
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                return f.read()
+        return None
+
+    st.markdown("**로컬 파일 감지**")
+    for _k, _label in [
+        ("fg",        "피어앤그리드"),
+        ("rs_stock",  "종목 RS"),
+        ("rs_etf",    "ETF RS"),
+        ("trend_wk",  "추세판별기(주간)"),
+        ("trend_sup", "추세판별기(수급)"),
+        ("trading",   "거래대금 강도"),
+        ("consensus", "컨센데이터"),
+        ("exp_may",   "수출(5월잠정)"),
+        ("exp_apr",   "수출(4월확정)"),
+    ]:
+        _ic, _p = _fstatus(_k)
+        st.caption(f"{_ic} {_label}")
+
+    st.divider()
+    if st.button("🔄 로컬 파일 전체 로드", use_container_width=True, key="load_all_local",
+                 help="감지된 모든 Excel 파일을 세션에 로드합니다"):
+        _loaded = []
+        _map = {
+            "fg":        "c_fg_bytes",
+            "rs_stock":  "c_rs_bytes",
+            "rs_etf":    "c_etf_xl_bytes",
+            "trend_wk":  "c_weekly_bytes",
+            "trend_sup": "c_supply_bytes",
+            "trading":   "c_trading_bytes",
+            "consensus": "c_consensus_bytes",
+            "exp_may":   "c_exp_may_bytes",
+            "exp_apr":   "c_exp_apr_bytes",
+        }
+        for _k, _sk in _map.items():
+            _b = _local_bytes(_k)
+            if _b:
+                st.session_state[_sk] = _b
+                _loaded.append(_k)
+        if _loaded:
+            st.success(f"{len(_loaded)}개 로드 완료")
+        else:
+            st.warning("감지된 파일 없음")
+
+    st.divider()
+    st.caption("버튼 없이 자동 적용: 탭에서 분석 버튼을 누르면 로컬 파일이 자동으로 사용됩니다.")
+
+# 앱 시작 시 로컬 파일 자동 사전 로드 (세션에 없을 때만)
+_AUTO_LOAD_MAP = {
+    "fg":        "c_fg_bytes",
+    "rs_stock":  "c_rs_bytes",
+    "rs_etf":    "c_etf_xl_bytes",
+    "trend_wk":  "c_weekly_bytes",
+    "trend_sup": "c_supply_bytes",
+    "trading":   "c_trading_bytes",
+    "consensus": "c_consensus_bytes",
+    "exp_may":   "c_exp_may_bytes",
+    "exp_apr":   "c_exp_apr_bytes",
+}
+for _ak, _sk in _AUTO_LOAD_MAP.items():
+    if _sk not in st.session_state:
+        _b = _local_bytes(_ak)
+        if _b:
+            st.session_state[_sk] = _b
+
+tab4, tab2, tab3, tab1, tab5 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장", "📦 수출 데이터"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
@@ -255,6 +352,207 @@ def _cv(v, fmt=".2f"):
     sign = "+" if v >= 0 else ""
     arrow = "▲" if v >= 0 else "▼"
     return f'<span style="color:{color};font-weight:bold">{arrow} {sign}{v:{fmt}}</span>'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 수출 데이터 파싱 유틸
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_exp_date(s):
+    """'2022년01월' or '2023년 1월' → pd.Timestamp"""
+    m = re.match(r'(\d{4})년\s*(\d{1,2})월', str(s).strip())
+    if m:
+        try:
+            return pd.Timestamp(int(m.group(1)), int(m.group(2)), 1)
+        except Exception:
+            pass
+    return pd.NaT
+
+def _load_exp_sheet(xl_bytes, sheet_name, layout="may"):
+    """Parse one sheet from export Excel files.
+
+    layout="may"  → 5월 잠정: date=col0, 일평균=col5, MoM=col6, YoY=col7
+    layout="apr"  → 4월 확정: detect date column from '년월' in row2, then infer sibling cols
+    Returns DataFrame with columns: 날짜, 금액, 일평균, MoM, YoY, 단가
+    """
+    try:
+        df_raw = pd.read_excel(io.BytesIO(xl_bytes), sheet_name=sheet_name,
+                                header=None, engine="openpyxl")
+    except Exception:
+        return pd.DataFrame()
+    if df_raw.shape[0] < 5:
+        return pd.DataFrame()
+
+    data = df_raw.iloc[4:].copy().reset_index(drop=True)
+    nc = data.shape[1]
+
+    def _col(i):
+        return pd.to_numeric(data.iloc[:, i] if nc > i else pd.Series(dtype=float), errors="coerce")
+
+    if layout == "may":
+        dates = data.iloc[:, 0].apply(_parse_exp_date)
+        valid = dates.notna()
+        data = data[valid].reset_index(drop=True)
+        dates = dates[valid].reset_index(drop=True)
+        nc = data.shape[1]
+        result = pd.DataFrame({
+            "날짜":   dates.values,
+            "금액":   _col(15).values if nc > 15 else _col(5).values,
+            "일평균": _col(5).values,
+            "MoM":    _col(6).values,
+            "YoY":    _col(7).values,
+            "단가":   _col(8).values,
+        })
+    else:  # apr — dynamic column detection via row 2 header
+        hdr2 = df_raw.iloc[2].tolist()
+        hdr3 = df_raw.iloc[3].tolist()
+        # Find date column: first col where hdr2 cell contains '년월'
+        date_col = next((i for i, v in enumerate(hdr2) if isinstance(v, str) and "년월" in v), None)
+        if date_col is None:
+            # Fallback: scan data rows for first col whose values match date pattern
+            for ci in range(min(nc, 12)):
+                test = data.iloc[:, ci].astype(str).str.match(r"\d{4}년\s*\d{1,2}월")
+                if test.sum() >= 3:
+                    date_col = ci
+                    break
+        if date_col is None:
+            return pd.DataFrame()
+
+        dates = data.iloc[:, date_col].apply(_parse_exp_date)
+        valid = dates.notna()
+        data = data[valid].reset_index(drop=True)
+        dates = dates[valid].reset_index(drop=True)
+        nc = data.shape[1]
+
+        # 금액(달러) is the column right after date_col
+        amt_col = date_col + 1
+
+        # Find 일평균수출 / mom / yoy in row3 headers (left block, before date_col)
+        def _find_hdr3(keyword):
+            for i, v in enumerate(hdr3[:date_col]):
+                if isinstance(v, str) and keyword in v:
+                    return i
+            return None
+
+        avg_col = _find_hdr3("일평균수출") or max(0, date_col - 3)
+        mom_col = _find_hdr3("mom") or _find_hdr3("MoM") or (avg_col + 1)
+        yoy_col = _find_hdr3("yoy") or _find_hdr3("YoY") or (avg_col + 2)
+        # 단가 = 금액/중량 — usually at date_col + 3 or hdr3 position
+        dan_col = next((i for i, v in enumerate(hdr3) if isinstance(v, str) and "달러" in v and "중량" in v), date_col + 3)
+
+        result = pd.DataFrame({
+            "날짜":   dates.values,
+            "금액":   _col(amt_col).values,
+            "일평균": _col(avg_col).values,
+            "MoM":    _col(mom_col).values,
+            "YoY":    _col(yoy_col).values,
+            "단가":   _col(dan_col).values,
+        })
+
+    return result.dropna(subset=["날짜"]).reset_index(drop=True)
+
+def _exp_chart(df_list, labels, metric="금액", title="수출 트렌드"):
+    """Plotly chart: 수출 금액 + YoY bar for multiple categories."""
+    n = len(df_list)
+    if n == 0:
+        return None
+    colors = ["#58a6ff", "#3fb950", "#f78166", "#d2a8ff", "#ffa657",
+              "#79c0ff", "#56d364", "#ff7b72", "#bc8cff", "#ffa07a"]
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.6, 0.4], vertical_spacing=0.06,
+        subplot_titles=(title, "YoY (%)"),
+    )
+    for i, (df, lbl) in enumerate(zip(df_list, labels)):
+        if df.empty or metric not in df.columns:
+            continue
+        c = colors[i % len(colors)]
+        df = df.dropna(subset=["날짜", metric])
+        fig.add_trace(go.Scatter(
+            x=df["날짜"], y=df[metric], name=lbl,
+            line=dict(color=c, width=2), mode="lines",
+        ), row=1, col=1)
+        if "YoY" in df.columns:
+            df_yoy = df.dropna(subset=["YoY"])
+            if not df_yoy.empty:
+                bar_colors = ["#3fb950" if v >= 0 else "#f85149" for v in df_yoy["YoY"]]
+                fig.add_trace(go.Bar(
+                    x=df_yoy["날짜"], y=(df_yoy["YoY"] * 100).round(1),
+                    name=f"{lbl} YoY", marker_color=bar_colors,
+                    showlegend=False, opacity=0.75,
+                ), row=2, col=1)
+    fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
+    fig.update_layout(
+        height=420, margin=dict(l=10, r=10, t=36, b=10),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#e0e0e0", legend=dict(orientation="h", y=1.06),
+        dragmode=False,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+    return fig
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _scan_exp_anomalies(xl_bytes: bytes, layout: str,
+                         yoy_thresh: float = 0.4, mom_thresh: float = 0.25) -> pd.DataFrame:
+    """전체 시트를 스캔해 최신월 YoY/MoM 특이점을 DataFrame으로 반환.
+
+    Returns columns: 시트명, 날짜, YoY_pct, MoM_pct, 일평균, 방향, 강도
+    """
+    _skip = {"반도체 수출 판가 증가율"}
+    try:
+        sheet_names = pd.ExcelFile(io.BytesIO(xl_bytes), engine="openpyxl").sheet_names
+    except Exception:
+        return pd.DataFrame()
+
+    rows = []
+    for sn in sheet_names:
+        if sn in _skip:
+            continue
+        try:
+            df = _load_exp_sheet(xl_bytes, sn, layout)
+        except Exception:
+            continue
+        if df.empty or len(df) < 3:
+            continue
+
+        # 최근 3개월 중 유효한 YoY / MoM 데이터가 있는 마지막 행
+        recent = df.tail(4).copy()
+        # 가장 최근 유효 YoY
+        yoy_row = recent.dropna(subset=["YoY"]).tail(1)
+        mom_row = recent.dropna(subset=["MoM"]).tail(1)
+        if yoy_row.empty and mom_row.empty:
+            continue
+
+        yoy_val = float(yoy_row["YoY"].iloc[0]) if not yoy_row.empty else np.nan
+        mom_val = float(mom_row["MoM"].iloc[0]) if not mom_row.empty else np.nan
+        avg_val = float(yoy_row["일평균"].iloc[0]) if not yoy_row.empty and pd.notna(yoy_row["일평균"].iloc[0]) else np.nan
+        date_val = yoy_row["날짜"].iloc[0] if not yoy_row.empty else mom_row["날짜"].iloc[0]
+
+        is_yoy_anomaly = pd.notna(yoy_val) and abs(yoy_val) >= yoy_thresh
+        is_mom_anomaly = pd.notna(mom_val) and abs(mom_val) >= mom_thresh
+
+        if not (is_yoy_anomaly or is_mom_anomaly):
+            continue
+
+        # 강도 = |YoY| 우선, 없으면 |MoM|
+        strength = abs(yoy_val) if pd.notna(yoy_val) else abs(mom_val)
+        direction = "▲" if (yoy_val if pd.notna(yoy_val) else mom_val) > 0 else "▼"
+
+        rows.append({
+            "시트명": sn,
+            "날짜": date_val,
+            "YoY_pct": round(yoy_val * 100, 1) if pd.notna(yoy_val) else np.nan,
+            "MoM_pct": round(mom_val * 100, 1) if pd.notna(mom_val) else np.nan,
+            "일평균": avg_val,
+            "방향": direction,
+            "강도": strength,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+    result = result.sort_values("강도", ascending=False).reset_index(drop=True)
+    return result
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 티커 이름 사전
@@ -1126,7 +1424,7 @@ def get_kr_stock_rs_auto(top_n=15):
     """yfinance 배치 다운로드 + Mansfield RS: rel=stock/KOSPI, RS=(rel/MA52-1)×100"""
     import datetime as _dt
     end   = _dt.date.today()
-    start = end - _dt.timedelta(days=280)
+    start = end - _dt.timedelta(days=520)  # 2년치 → Excel 데이터와 MA52 안정화
     tks   = list(KR_STOCKS.keys())
     all_prices = {}
     try:
@@ -1160,7 +1458,7 @@ def get_kr_etf_rs_auto(top_n=15):
     """yfinance 배치 다운로드 + Mansfield RS: rel=ETF/KOSPI, RS=(rel/MA52-1)×100"""
     import datetime as _dt
     end   = _dt.date.today()
-    start = end - _dt.timedelta(days=280)
+    start = end - _dt.timedelta(days=520)  # 2년치 → Excel 데이터와 MA52 안정화
     codes = list(KR_ETF_CODES.keys())
     tickers_yf = [c + ".KS" for c in codes]
     all_prices = {}
@@ -1200,7 +1498,7 @@ def get_composite_score(top_n=30):
 
     today = _dt.date.today()
     end   = today
-    start = end - _dt.timedelta(days=280)
+    start = end - _dt.timedelta(days=520)  # 2년치 → MA52 안정화
 
     # ── 0. 섹터 ETF RS로 강한 섹터 선별 ──
     sector_etf_tks = list(set(SECTOR_ETF_MAP.values()))
@@ -2249,7 +2547,7 @@ def calc_consensus_excel(df_db):
 
 # ── 공통 차트 헬퍼 ──
 def _chart_layout(fig, height=360):
-    fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10, dragmode=False),
+    fig.update_layout(height=height, margin=dict(l=10,r=20,t=30,b=10),
                       plot_bgcolor='#0d1117', paper_bgcolor='rgba(0,0,0,0)',
                       font=dict(color='#c9d1d9', family='Inter, sans-serif'),
                       legend=dict(orientation='h', y=1.08, bgcolor='rgba(0,0,0,0)',
@@ -2269,7 +2567,7 @@ def _rs_bar_chart(items, name_key="name", val_key="norm_rs", height=320):
     colors = ["#00c853" if v>=70 else ("#ffc107" if v>=50 else "#ff4b4b") for v in vals]
     fig = go.Figure(go.Bar(x=vals, y=names, orientation='h', marker_color=colors,
                            text=[f"{v:.1f}" for v in vals], textposition='outside'))
-    fig.update_layout(xaxis_range=[0,112], height=max(height, len(names, dragmode=False)*26),
+    fig.update_layout(xaxis_range=[0,112], height=max(height, len(names)*26), dragmode=False,
                       margin=dict(l=10,r=50,t=10,b=10),
                       plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
     fig.add_vline(x=70, line_dash="dash", line_color="#00c853", opacity=0.5)
@@ -2358,7 +2656,7 @@ with tab1:
                     _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["ndx_osc"],name="NASDAQ",line=dict(color="#00B3B3",width=2)))
                     _fig.add_trace(go.Scatter(x=ch["dates"],y=ch["spy"],name="SPY가격",yaxis="y2",line=dict(color="#666",width=1.5,dash="dot")))
                     _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)")
-                    _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False, dragmode=False),
+                    _fig.update_layout(yaxis2=dict(overlaying='y',side='right',showgrid=False), dragmode=False,
                                         height=320,margin=dict(l=10,r=60,t=20,b=10),
                                         plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
                                         font_color='#e0e0e0',legend=dict(orientation='h',y=1.08))
@@ -2604,12 +2902,17 @@ with tab2:
     # ── 한국 개별종목 RS ──
     st.markdown('<p class="zone-header">📈 강한 종목 순위</p>', unsafe_allow_html=True)
     st.caption("코스피·코스닥 전체 대비 더 많이 오른 종목 순위 — 70점 이상이면 강세")
-    rs_xl_file = st.file_uploader(
-        "종목상대강도데이터.xlsx 업로드 (선택)", type=["xlsx"], key="rs_xl_file",
-        help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
-    )
-    if rs_xl_file:
-        rs_xl_file.seek(0); st.session_state["c_rs_bytes"] = rs_xl_file.read()
+    _rs_src_label = "📡 yfinance 자동"
+    if "c_rs_bytes" in st.session_state:
+        _rs_src_label = f"📂 로컬 파일 {'(사이드바)' if os.path.exists(_LOCAL_FILES['rs_stock']) else '(업로드됨)'}"
+    with st.expander("📂 파일 직접 업로드 (선택 — 로컬 파일이 없을 때)", expanded=False):
+        rs_xl_file = st.file_uploader(
+            "종목상대강도데이터.xlsx", type=["xlsx"], key="rs_xl_file",
+            help="업로드 시 Yahoo Finance 대신 로컬 Excel 종가 데이터로 RS 계산 (빠르고 정확)"
+        )
+        if rs_xl_file:
+            rs_xl_file.seek(0); st.session_state["c_rs_bytes"] = rs_xl_file.read()
+    st.caption(f"데이터 소스: {_rs_src_label}")
     if st.button("▶ 개별종목 RS 스크리닝", key="kr_stock_rs_run", use_container_width=True):
         if "c_rs_bytes" in st.session_state:
             _xl_rs = pd.ExcelFile(io.BytesIO(st.session_state["c_rs_bytes"]), engine="openpyxl")
@@ -2662,13 +2965,18 @@ with tab2:
 
     # ── 한국 ETF RS ──
     st.markdown('<p class="zone-header">📊 ETF 정밀 순위</p>', unsafe_allow_html=True)
-    st.caption("Excel 파일 업로드 시 더 정확한 데이터로 계산 / 없으면 자동으로 수집")
-    etf_rs_xl_file = st.file_uploader(
-        "etf상대강도데이터.xlsx 업로드 (선택 — 없으면 자동 수집)", type=["xlsx"], key="etf_rs_xl_file",
-        help="업로드 시 로컬 Excel 데이터 우선 사용 / 없으면 yfinance로 자동 계산"
-    )
-    if etf_rs_xl_file:
-        etf_rs_xl_file.seek(0); st.session_state["c_etf_xl_bytes"] = etf_rs_xl_file.read()
+    st.caption("Excel 파일 우선 사용 (더 정확) / 없으면 yfinance 자동 수집")
+    _etf_src_label = "📡 yfinance 자동"
+    if "c_etf_xl_bytes" in st.session_state:
+        _etf_src_label = f"📂 로컬 파일 {'(사이드바)' if os.path.exists(_LOCAL_FILES['rs_etf']) else '(업로드됨)'}"
+    with st.expander("📂 파일 직접 업로드 (선택 — 로컬 파일이 없을 때)", expanded=False):
+        etf_rs_xl_file = st.file_uploader(
+            "etf상대강도데이터.xlsx", type=["xlsx"], key="etf_rs_xl_file",
+            help="업로드 시 로컬 Excel 데이터 우선 사용 / 없으면 yfinance로 자동 계산"
+        )
+        if etf_rs_xl_file:
+            etf_rs_xl_file.seek(0); st.session_state["c_etf_xl_bytes"] = etf_rs_xl_file.read()
+    st.caption(f"데이터 소스: {_etf_src_label}")
     if st.button("▶ ETF RS 스크리닝", key="kr_etf_rs_run", use_container_width=True):
         if "c_etf_xl_bytes" in st.session_state:
             try:
@@ -2752,18 +3060,22 @@ with tab2:
                             _fig.add_trace(go.Bar(x=ch["dates"], y=ch["osc"], name="Oscillator",
                                                    marker_color=_osc_colors), row=2, col=1)
                             _fig.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
-                            _fig.update_layout(height=400, margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
+                            _fig.update_layout(height=400, margin=dict(l=10,r=20,t=40,b=10),
                                                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                                               font_color='#e0e0e0', showlegend=False)
+                                               font_color='#e0e0e0', showlegend=False, dragmode=False)
                             _fig.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
-    st.caption("📂 정밀 분석: 피어앤그리드.xlsx 파일이 있으면 아래에 업로드하세요 (KOSPI / KOSDAQ 시트 포함)")
-    fg_file = st.file_uploader("피어앤그리드.xlsx", type=["xlsx"], key="kr_fg_file")
+    _fg_src = "📂 로컬 파일 감지됨" if "c_fg_bytes" in st.session_state else "❌ 파일 없음 (auto만 가능)"
+    st.caption(f"정밀 분석 데이터 소스: {_fg_src}")
+    with st.expander("📂 파일 직접 업로드 (선택 — 로컬 파일이 없을 때)", expanded=False):
+        fg_file = st.file_uploader("피어앤그리드.xlsx", type=["xlsx"], key="kr_fg_file")
     if fg_file:
+        fg_file.seek(0); st.session_state["c_fg_bytes"] = fg_file.read()
+    _fg_bytes_to_use = st.session_state.get("c_fg_bytes")
+    if _fg_bytes_to_use is not None:
         try:
-            fg_file.seek(0)
-            _fg_bytes = fg_file.read()
+            _fg_bytes = _fg_bytes_to_use
             df_kp = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name="KOSPI", engine="openpyxl")
             df_kq = pd.read_excel(io.BytesIO(_fg_bytes), sheet_name="KOSDAQ", engine="openpyxl")
             _df_call_oi = _df_put_oi = None
@@ -2785,8 +3097,7 @@ with tab2:
             st.error(f"파일 읽기 오류: {e}")
     if "c_kr_fg" in st.session_state:
         kr_fg = st.session_state["c_kr_fg"]
-        _is_fg_cached = not fg_file
-        st.markdown(f"**기준일: {kr_fg['date']}**" + ("  ⚡ 캐시" if _is_fg_cached else ""))
+        st.markdown(f"**기준일: {kr_fg['date']}**")
         c1,c2 = st.columns(2)
         c1.metric("코스피 오실레이터", kr_fg["kospi_osc"], f"{'🟢' if kr_fg['kospi_osc']>0 else '🔴'} {kr_fg['kospi_sentiment']}")
         c2.metric("코스닥 오실레이터", kr_fg["kosdaq_osc"], f"{'🟢' if kr_fg['kosdaq_osc']>0 else '🔴'} {kr_fg['kosdaq_sentiment']}")
@@ -2810,9 +3121,9 @@ with tab2:
                                            fill='tozeroy',fillcolor='rgba(0,179,179,0.15)'),row=2,col=1)
                 _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=1,col=1)
                 _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
-                _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
+                _fig.update_layout(height=420,margin=dict(l=10,r=20,t=40,b=10),
                                     plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
-                                    font_color='#e0e0e0',showlegend=False)
+                                    font_color='#e0e0e0',showlegend=False,dragmode=False)
                 _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                 _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                 st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
@@ -2861,10 +3172,10 @@ with tab2:
                         fig_s.add_trace(go.Scatter(x=ch["dates"],y=ch["price"],
                             name="종가",line=dict(color="#E0E0E0",width=1.5),
                             showlegend=(row_i==1)),row=row_i,col=1,secondary_y=True)
-                    fig_s.update_layout(height=480,margin=dict(l=10,r=60,t=40,b=10, dragmode=False),
+                    fig_s.update_layout(height=480,margin=dict(l=10,r=60,t=40,b=10),
                         plot_bgcolor="rgba(0,0,0,0)",paper_bgcolor="rgba(0,0,0,0)",
                         font_color="#e0e0e0",barmode="overlay",
-                        legend=dict(orientation="h",y=1.05))
+                        legend=dict(orientation="h",y=1.05),dragmode=False)
                     fig_s.update_yaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
                     fig_s.update_xaxes(showgrid=True,gridcolor="rgba(255,255,255,0.08)")
                     st.plotly_chart(fig_s, use_container_width=True, config={"scrollZoom": False})
@@ -2934,7 +3245,7 @@ with tab2:
                         fig_inst.add_trace(go.Bar(x=d["dates"], y=[v/1e8 for v in d["frgn"]],
                                                   name="외국인", marker_color=bc_f, opacity=0.6))
                     fig_inst = _chart_layout(fig_inst, height=200)
-                    fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원, dragmode=False)")
+                    fig_inst.update_layout(barmode="group", yaxis_title="순매수(억원)")
                     fig_inst.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
                     st.plotly_chart(fig_inst, use_container_width=True, config={"scrollZoom": False})
         else:
@@ -2977,11 +3288,16 @@ with tab2:
 
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
     st.markdown('<p class="zone-header">📋 Excel 정밀 분석</p>', unsafe_allow_html=True)
-    st.caption("📂 데이터 정리.xlsx (db 시트) — 원본 EPS가속(1M>3M) + 외국인/기관 교집합")
-    consensus_file = st.file_uploader("데이터 정리.xlsx 업로드", type=["xlsx"], key="consensus_file")
+    _cons_src = "📂 로컬 파일 감지됨" if "c_consensus_bytes" in st.session_state else "❌ 파일 없음"
+    st.caption(f"📂 데이터 정리.xlsx (db 시트) — EPS가속(1M>3M) + 외국인/기관 교집합 | 소스: {_cons_src}")
+    with st.expander("📂 파일 직접 업로드 (선택)", expanded=False):
+        consensus_file = st.file_uploader("데이터 정리.xlsx", type=["xlsx"], key="consensus_file")
     if consensus_file:
+        consensus_file.seek(0); st.session_state["c_consensus_bytes"] = consensus_file.read()
+    _cons_bytes = st.session_state.get("c_consensus_bytes")
+    if _cons_bytes:
         try:
-            df_db = pd.read_excel(consensus_file, sheet_name="db", engine="openpyxl")
+            df_db = pd.read_excel(io.BytesIO(_cons_bytes), sheet_name="db", engine="openpyxl")
             _tmp_cons = calc_consensus_excel(df_db)
             if "error" not in _tmp_cons:
                 st.session_state["c_consensus"] = _tmp_cons
@@ -2991,9 +3307,6 @@ with tab2:
             st.error(f"파일 읽기 오류: {e}")
     if "c_consensus" in st.session_state:
         cons = st.session_state["c_consensus"]
-        _is_cons_cached = not consensus_file
-        if _is_cons_cached:
-            st.caption("⚡ 캐시")
         st.metric("EPS 가속 통과 종목", f"{cons['eps_passed']}개")
         c1,c2 = st.columns(2)
         with c1:
@@ -3031,7 +3344,12 @@ with tab3:
     ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
 
     st.divider()
-    with st.expander("📂 Excel 파일 추가 (선택) — 더 정밀하게 보고 싶을 때"):
+    # 로컬 파일 상태 표시
+    _sup_ok = "✅" if "c_supply_bytes" in st.session_state else "❌"
+    _trd_ok = "✅" if "c_trading_bytes" in st.session_state else "❌"
+    _wk_ok  = "✅" if "c_weekly_bytes"  in st.session_state else "❌"
+    st.caption(f"로컬 파일: {_sup_ok} 추세(수급) &nbsp;|&nbsp; {_trd_ok} 거래대금강도 &nbsp;|&nbsp; {_wk_ok} 추세(주간)  — 사이드바 '전체 로드' 버튼으로 자동 로드")
+    with st.expander("📂 파일 직접 업로드 (선택 — 로컬 파일이 없을 때)"):
         trend_supply_file = st.file_uploader(
             "① 추세판별기(수급까지체크).xlsx", type=["xlsx"], key="trend_supply_file",
             help="DB(2) 시트 — 5일간 기관 매수수량 오실레이터 추가"
@@ -3050,9 +3368,9 @@ with tab3:
         trading_xl_file.seek(0); st.session_state["c_trading_bytes"] = trading_xl_file.read()
     if weekly_xl_file:
         weekly_xl_file.seek(0); st.session_state["c_weekly_bytes"] = weekly_xl_file.read()
-    _eff_supply = io.BytesIO(st.session_state["c_supply_bytes"]) if not trend_supply_file and "c_supply_bytes" in st.session_state else trend_supply_file
-    _eff_trading = io.BytesIO(st.session_state["c_trading_bytes"]) if not trading_xl_file and "c_trading_bytes" in st.session_state else trading_xl_file
-    _eff_weekly = io.BytesIO(st.session_state["c_weekly_bytes"]) if not weekly_xl_file and "c_weekly_bytes" in st.session_state else weekly_xl_file
+    _eff_supply = io.BytesIO(st.session_state["c_supply_bytes"]) if "c_supply_bytes" in st.session_state else None
+    _eff_trading = io.BytesIO(st.session_state["c_trading_bytes"]) if "c_trading_bytes" in st.session_state else None
+    _eff_weekly = io.BytesIO(st.session_state["c_weekly_bytes"]) if "c_weekly_bytes" in st.session_state else None
 
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
         tickers_to_run = []
@@ -3170,10 +3488,10 @@ with tab3:
                         _fig.add_trace(go.Bar(x=ch["dates"],y=ch["cmf"],name="CMF",
                                                marker_color=_cmf_colors),row=2,col=1)
                         _fig.add_hline(y=0,line_dash="dash",line_color="rgba(255,255,255,0.3)",row=2,col=1)
-                        _fig.update_layout(height=400,margin=dict(l=10,r=20,t=40,b=10, dragmode=False),
+                        _fig.update_layout(height=400,margin=dict(l=10,r=20,t=40,b=10),
                                             plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
                                             font_color='#e0e0e0',showlegend=True,
-                                            legend=dict(orientation='h',y=1.08))
+                                            legend=dict(orientation='h',y=1.08),dragmode=False)
                         _fig.update_xaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         _fig.update_yaxes(showgrid=True,gridcolor='rgba(255,255,255,0.08)')
                         st.plotly_chart(_fig, use_container_width=True, config={"scrollZoom": False})
@@ -3215,10 +3533,10 @@ with tab3:
                             _fig2.add_trace(go.Bar(x=_ch["dates"], y=_ch["cmf"], name="CMF",
                                                    marker_color=_cmf_colors2), row=2, col=1)
                             _fig2.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
-                            _fig2.update_layout(height=400, margin=dict(l=10, r=20, t=40, b=10, dragmode=False),
+                            _fig2.update_layout(height=400, margin=dict(l=10, r=20, t=40, b=10),
                                                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                                                 font_color='#e0e0e0', showlegend=True,
-                                                legend=dict(orientation='h', y=1.08))
+                                                legend=dict(orientation='h', y=1.08), dragmode=False)
                             _fig2.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             _fig2.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                             st.plotly_chart(_fig2, use_container_width=True, config={"scrollZoom": False})
@@ -3262,10 +3580,10 @@ with tab3:
                     fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[close_col_tsd].tolist(), name="종가",
                                                   line=dict(color="#E0E0E0", width=2)), secondary_y=True)
                     fig_tsd.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", secondary_y=False)
-                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10, dragmode=False),
+                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10),
                                           plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                           font_color="#e0e0e0", barmode="overlay",
-                                          legend=dict(orientation="h", y=1.08))
+                                          legend=dict(orientation="h", y=1.08), dragmode=False)
                     fig_tsd.update_yaxes(title_text="수량", secondary_y=False,
                                          showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
@@ -3341,10 +3659,10 @@ with tab3:
                         df_txi[close_col_xi] = pd.to_numeric(df_txi[close_col_xi], errors='coerce')
                         fig_rr.add_trace(go.Scatter(x=dates_xi, y=df_txi[close_col_xi].tolist(), name="종가",
                                                     line=dict(color="#E0E0E0", width=2)), secondary_y=True)
-                    fig_rr.update_layout(height=340, margin=dict(l=10,r=60,t=30,b=10, dragmode=False),
+                    fig_rr.update_layout(height=340, margin=dict(l=10,r=60,t=30,b=10),
                                          plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                                          font_color="#e0e0e0", barmode="overlay",
-                                         legend=dict(orientation="h", y=1.08))
+                                         legend=dict(orientation="h", y=1.08), dragmode=False)
                     fig_rr.update_yaxes(title_text="_RotationRate_", secondary_y=False,
                                         showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     fig_rr.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
@@ -3442,9 +3760,9 @@ with tab3:
                 fig_si.add_trace(go.Scatter(x=ch_si["dates"], y=ch_si["frgn_daily"],
                                             name="외국인", line=dict(color="#00B3B3", width=1.5)))
             fig_si.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-            fig_si.update_layout(height=320, margin=dict(l=10,r=30,t=30,b=10, dragmode=False),
+            fig_si.update_layout(height=320, margin=dict(l=10,r=30,t=30,b=10),
                                   plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                                  font_color="#e0e0e0", legend=dict(orientation="h", y=1.08))
+                                  font_color="#e0e0e0", legend=dict(orientation="h", y=1.08), dragmode=False)
             fig_si.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             fig_si.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             st.plotly_chart(fig_si, use_container_width=True, config={"scrollZoom": False})
@@ -3550,3 +3868,193 @@ with tab4:
 
     st.divider()
     st.caption("⭐ 강력: RS≥65 + 수급≥65  ·  ✅ 유망: RS≥55 + 수급≥55  ·  점수는 강한 섹터 내 백분위")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 탭 5: 수출 데이터
+# ─────────────────────────────────────────────────────────────────────────────
+with tab5:
+    st.info("**주요 품목·업체 수출 트렌드를 분석합니다.** 사이드바에서 파일이 자동으로 로드되거나, 아래에서 직접 업로드하세요.")
+
+    # ── 파일 로드 ─────────────────────────────────────────────────────────────
+    _exp_may_bytes = st.session_state.get("c_exp_may_bytes")
+    _exp_apr_bytes = st.session_state.get("c_exp_apr_bytes")
+
+    _exp_src_label = []
+    if _exp_may_bytes: _exp_src_label.append("✅ 5월 잠정")
+    if _exp_apr_bytes: _exp_src_label.append("✅ 4월 확정")
+
+    with st.expander("📂 수출 파일 업로드 / 상태", expanded=not bool(_exp_src_label)):
+        if _exp_src_label:
+            st.success("로컬 파일 로드됨: " + " | ".join(_exp_src_label))
+            st.caption("사이드바 **🔄 로컬 파일 전체 로드** 버튼을 다시 누르면 최신 파일로 갱신됩니다.")
+        else:
+            st.warning("로컬 파일이 없습니다. 아래에서 직접 업로드하세요.")
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            _up_may = st.file_uploader("5월 잠정 xlsx (품목별 집계)", type=["xlsx"], key="up_exp_may_t5")
+        with _c2:
+            _up_apr = st.file_uploader("4월 확정 xlsx (개별 업체)", type=["xlsx"], key="up_exp_apr_t5")
+        if _up_may:
+            _up_may.seek(0); st.session_state["c_exp_may_bytes"] = _up_may.read()
+            _exp_may_bytes = st.session_state["c_exp_may_bytes"]
+            st.success("5월 잠정 업로드 완료")
+        if _up_apr:
+            _up_apr.seek(0); st.session_state["c_exp_apr_bytes"] = _up_apr.read()
+            _exp_apr_bytes = st.session_state["c_exp_apr_bytes"]
+            st.success("4월 확정 업로드 완료")
+        # 추가 파일 (6월 잠정 등 미래 파일)
+        st.markdown("---")
+        st.caption("추가 파일 (6월 잠정 등) — 업로드하면 파일 선택 목록에 자동으로 나타납니다")
+        _up_extra = st.file_uploader("추가 수출 xlsx (자유 업로드)", type=["xlsx"], key="up_exp_extra_t5")
+        if _up_extra:
+            _up_extra.seek(0); st.session_state["c_exp_extra_bytes"] = _up_extra.read()
+            st.session_state["c_exp_extra_name"] = _up_extra.name
+            st.success(f"{_up_extra.name} 업로드 완료")
+
+    if not (_exp_may_bytes or _exp_apr_bytes or st.session_state.get("c_exp_extra_bytes")):
+        st.stop()
+
+    # ── 파일 선택 ─────────────────────────────────────────────────────────────
+    _exp_file_opts = {}
+    if _exp_may_bytes: _exp_file_opts["5월 잠정 (품목별 집계)"] = (_exp_may_bytes, "may")
+    if _exp_apr_bytes: _exp_file_opts["4월 확정 (개별 업체)"]   = (_exp_apr_bytes, "apr")
+    if st.session_state.get("c_exp_extra_bytes"):
+        _extra_name = st.session_state.get("c_exp_extra_name", "추가 파일")
+        _exp_file_opts[_extra_name] = (st.session_state["c_exp_extra_bytes"], "may")
+
+    _exp_file_sel = st.radio("파일 선택", list(_exp_file_opts.keys()),
+                              horizontal=True, key="exp_file_sel_t5")
+    _cur_bytes, _cur_layout = _exp_file_opts[_exp_file_sel]
+
+    # ── 시트 목록 ─────────────────────────────────────────────────────────────
+    _sheet_cache_key = f"_exp_sheets_{_exp_file_sel}"
+    if _sheet_cache_key not in st.session_state:
+        try:
+            _xl_tmp = pd.ExcelFile(io.BytesIO(_cur_bytes), engine="openpyxl")
+            _skip_sheets = {"반도체 수출 판가 증가율"}
+            st.session_state[_sheet_cache_key] = [s for s in _xl_tmp.sheet_names if s not in _skip_sheets]
+        except Exception as _e:
+            st.error(f"시트 목록 로드 실패: {_e}")
+            st.session_state[_sheet_cache_key] = []
+    _all_sheets = st.session_state.get(_sheet_cache_key, [])
+    if not _all_sheets:
+        st.warning("시트 목록을 읽을 수 없습니다.")
+        st.stop()
+
+    st.caption(f"총 **{len(_all_sheets)}개** 시트 감지")
+
+    # ── 섹션 1: 트렌드 차트 ───────────────────────────────────────────────────
+    st.markdown('<p class="zone-header">📈 트렌드 차트</p>', unsafe_allow_html=True)
+
+    _default_may = ["총수출", "디램", "낸드", "HBM", "리튬전지", "mlcc"]
+    _defaults    = [s for s in _default_may if s in _all_sheets] if _cur_layout == "may" else _all_sheets[:4]
+
+    _col_sel, _col_metric = st.columns([3, 1])
+    with _col_sel:
+        _selected = st.multiselect(
+            "품목/업체 선택",
+            options=_all_sheets,
+            default=_defaults[:4],
+            key="exp_sel_t5",
+            help="여러 항목 선택 시 같은 차트에 겹쳐서 표시",
+        )
+    with _col_metric:
+        _metric_opts = {"일평균": "일평균", "월 총액": "금액", "단가": "단가"}
+        _metric_sel  = st.selectbox("지표", list(_metric_opts.keys()), key="exp_metric_t5")
+        _metric      = _metric_opts[_metric_sel]
+
+    if _selected:
+        _dfs, _labels = [], []
+        for _sn in _selected:
+            _df = _load_exp_sheet(_cur_bytes, _sn, layout=_cur_layout)
+            if not _df.empty:
+                _dfs.append(_df)
+                _labels.append(_sn)
+
+        if _dfs:
+            _all_dates_t5 = pd.concat([d["날짜"] for d in _dfs]).dropna()
+            _min_yr_t5 = int(_all_dates_t5.min().year)
+            _max_yr_t5 = int(_all_dates_t5.max().year)
+            _yr_range_t5 = st.slider("기간 (연도)", _min_yr_t5, _max_yr_t5,
+                                      (max(_min_yr_t5, _max_yr_t5 - 3), _max_yr_t5),
+                                      key="exp_yr_t5")
+            _t_s = pd.Timestamp(_yr_range_t5[0], 1, 1)
+            _t_e = pd.Timestamp(_yr_range_t5[1], 12, 31)
+            _dfs_f = [d[(d["날짜"] >= _t_s) & (d["날짜"] <= _t_e)] for d in _dfs]
+
+            _fig_t5 = _exp_chart(_dfs_f, _labels, metric=_metric,
+                                  title=f"{_exp_file_sel} — {_metric_sel}")
+            if _fig_t5:
+                st.plotly_chart(_fig_t5, use_container_width=True, config={"scrollZoom": False})
+
+            # 최신 수치 요약 카드
+            st.markdown("**최신 데이터 요약**")
+            _sum_cols_t5 = st.columns(min(len(_dfs_f), 4))
+            for _ci, (_df_c, _lbl) in enumerate(zip(_dfs_f, _labels)):
+                if _df_c.empty: continue
+                _last_t5 = _df_c.dropna(subset=[_metric]).iloc[-1] if not _df_c.dropna(subset=[_metric]).empty else None
+                if _last_t5 is None: continue
+                with _sum_cols_t5[_ci % 4]:
+                    _val_t5 = _last_t5[_metric]
+                    _yoy_t5 = _last_t5["YoY"] if "YoY" in _last_t5.index else None
+                    _yoy_pct_t5 = f"{_yoy_t5*100:+.1f}%" if pd.notna(_yoy_t5) else "—"
+                    _vfmt = f"${_val_t5/1e6:.1f}M" if _metric in ("금액", "일평균") and _val_t5 > 1e5 else f"{_val_t5:,.1f}"
+                    st.metric(label=_lbl[:14], value=_vfmt, delta=f"YoY {_yoy_pct_t5}")
+        else:
+            st.warning("선택한 시트를 파싱할 수 없습니다.")
+
+    # ── 섹션 2: 특이점 자동 감지 ──────────────────────────────────────────────
+    st.markdown('<p class="zone-header">📢 수출 특이점 — YoY/MoM 급변 감지</p>', unsafe_allow_html=True)
+    st.caption("전체 시트를 자동 스캔해 최신 월 기준 급증·급감 항목을 추출합니다. 새 파일(6월 잠정 등)을 업로드하면 자동 반영됩니다.")
+
+    _thr_c1, _thr_c2 = st.columns(2)
+    with _thr_c1:
+        _yoy_thr_t5 = st.slider("YoY 임계값 (%)", 10, 200, 40, step=10, key="anom_yoy_t5",
+                                  help="이 수치 이상 변화 시 특이점") / 100
+    with _thr_c2:
+        _mom_thr_t5 = st.slider("MoM 임계값 (%)", 5, 100, 25, step=5, key="anom_mom_t5") / 100
+
+    with st.spinner("전체 시트 스캔 중..."):
+        _anom_df_t5 = _scan_exp_anomalies(_cur_bytes, _cur_layout, _yoy_thr_t5, _mom_thr_t5)
+
+    if _anom_df_t5.empty:
+        st.info(f"임계값({_yoy_thr_t5*100:.0f}% / {_mom_thr_t5*100:.0f}%) 해당 특이점 없음")
+    else:
+        _n_up_t5   = int((_anom_df_t5["YoY_pct"].fillna(0) > 0).sum())
+        _n_down_t5 = int((_anom_df_t5["YoY_pct"].fillna(0) < 0).sum())
+        st.caption(f"총 **{len(_anom_df_t5)}건** — 🔺 급증 {_n_up_t5}건 / 🔻 급감 {_n_down_t5}건")
+
+        _au = _anom_df_t5[_anom_df_t5["YoY_pct"].fillna(0) > 0].head(20)
+        _ad = _anom_df_t5[_anom_df_t5["YoY_pct"].fillna(0) < 0].head(15)
+
+        _tcol1, _tcol2 = st.columns(2)
+        with _tcol1:
+            if not _au.empty:
+                st.markdown("**🔺 급증 항목 (YoY 상위)**")
+                for _, _row in _au.iterrows():
+                    _ys = f"YoY **{_row['YoY_pct']:+.1f}%**" if pd.notna(_row["YoY_pct"]) else ""
+                    _ms = f"MoM {_row['MoM_pct']:+.1f}%" if pd.notna(_row["MoM_pct"]) else ""
+                    _as = f"  일평균 ${_row['일평균']/1e6:.1f}M" if pd.notna(_row["일평균"]) and _row["일평균"] > 1e5 else ""
+                    _ds = _row["날짜"].strftime("%Y-%m") if pd.notna(_row["날짜"]) else ""
+                    _pts = " · ".join(p for p in [_ys, _ms] if p)
+                    st.markdown(
+                        f'<div class="sig-green"><b>{_row["시트명"]}</b>'
+                        f' <span style="color:#7d8590;font-size:0.8em">({_ds})</span>'
+                        f'&nbsp; {_pts}{_as}</div>',
+                        unsafe_allow_html=True,
+                    )
+        with _tcol2:
+            if not _ad.empty:
+                st.markdown("**🔻 급감 항목 (YoY 하위)**")
+                for _, _row in _ad.iterrows():
+                    _ys = f"YoY **{_row['YoY_pct']:+.1f}%**" if pd.notna(_row["YoY_pct"]) else ""
+                    _ms = f"MoM {_row['MoM_pct']:+.1f}%" if pd.notna(_row["MoM_pct"]) else ""
+                    _as = f"  일평균 ${_row['일평균']/1e6:.1f}M" if pd.notna(_row["일평균"]) and _row["일평균"] > 1e5 else ""
+                    _ds = _row["날짜"].strftime("%Y-%m") if pd.notna(_row["날짜"]) else ""
+                    _pts = " · ".join(p for p in [_ys, _ms] if p)
+                    st.markdown(
+                        f'<div class="sig-red"><b>{_row["시트명"]}</b>'
+                        f' <span style="color:#7d8590;font-size:0.8em">({_ds})</span>'
+                        f'&nbsp; {_pts}{_as}</div>',
+                        unsafe_allow_html=True,
+                    )
