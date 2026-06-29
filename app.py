@@ -808,8 +808,8 @@ def get_blood_indicator():
         hyg_yield = hyg_yield_raw * 100 if hyg_yield_raw < 1 else hyg_yield_raw  # convert decimal to %
         # hyg_yield는 현재 스칼라값이므로 blood 시계열 MA는 신뢰도 낮음 → 현재값+단기MA만 사용
         blood = (irx/(hyg_yield - t10y)).dropna()
-        cur=float(blood.iloc[-1]); ma20=float(blood.rolling(20).mean().iloc[-1])
-        return {"value":round(cur,4),"ma20":round(ma20,4),"vs_ma20":"위" if cur>ma20 else "아래","vs_ma60":"위" if cur>ma20 else "아래"}
+        cur=float(blood.iloc[-1]); ma20=float(blood.rolling(20).mean().iloc[-1]); ma60=float(blood.rolling(60).mean().iloc[-1]) if len(blood)>=60 else ma20
+        return {"value":round(cur,4),"ma20":round(ma20,4),"ma60":round(ma60,4),"vs_ma20":"위" if cur>ma20 else "아래","vs_ma60":"위" if cur>ma60 else "아래"}
     except Exception as e: return {"error":str(e)}
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1736,7 +1736,8 @@ def get_composite_score(top_n=30):
     if long40_raw and any(v != 0 for v in long40_raw.values()):
         supply_scores = ((1 - pd.Series(long40_raw).rank(pct=True)) * 100).round(1).to_dict()
     elif any(v != 0 for v in short5_raw.values()):
-        supply_scores = (pd.Series(short5_raw).rank(pct=True) * 100).round(1).to_dict()
+        # short5도 낮을수록(빈집) 좋으므로 역순 백분위 적용
+        supply_scores = ((1 - pd.Series(short5_raw).rank(pct=True)) * 100).round(1).to_dict()
 
     # 빈집 감지: long40 하위 35%(빈집) + 최근 5일 양수(전환 시작) = 최우선 기회
     binzip_set = set()
@@ -2748,9 +2749,15 @@ with tab0:
         _dc(_d_col4, _fi, _d_fg["spx_sentiment"], "공포탐욕(일)", _fc)
 
     if _d_spy_cop:
-        _copi = "🟢" if _d_spy_cop.get("pos") and _d_spy_cop.get("trend") == "상승" else (
-                "🔴" if not _d_spy_cop.get("pos") else "🟡")
-        _copc = "#3fb950" if _copi == "🟢" else ("#f85149" if _copi == "🔴" else "#d29922")
+        _cop_pos = _d_spy_cop.get("pos"); _cop_trend = _d_spy_cop.get("trend")
+        if not _cop_pos and _cop_trend == "상승":
+            _copi = "🔔"; _copc = "#f0c040"  # 전환점 — 가장 강력한 신호
+        elif _cop_pos and _cop_trend == "상승":
+            _copi = "🟢"; _copc = "#3fb950"
+        elif _cop_pos and _cop_trend == "하락":
+            _copi = "🟡"; _copc = "#d29922"
+        else:
+            _copi = "🔴"; _copc = "#f85149"
         _dc(_d_col5, _copi, f"{_d_spy_cop.get('value', 0):+.1f}", "코포크(SPY)", _copc)
 
     # ── 국내 시장 ──────────────────────────────────────────────────────────────────
@@ -2882,7 +2889,7 @@ with tab1:
 
         # ── 3. 코포크 + ZBT ──
         st.markdown('<p class="zone-header">📈 중장기 방향 — 지금 상승세인가</p>', unsafe_allow_html=True)
-        st.caption("코포크가 양수(+)이고 상승 중이면 중장기 매수 유리 | ZBT: 급락 후 반등 신호")
+        st.caption("코포크가 양수(+)이고 상승 중이면 중장기 매수 유리 | 음수에서 반등(전환점) = 강력 매수 기회 | ZBT: 급락 후 반등 신호")
         _cp1, _cp2 = st.columns(2)
         with _cp1:
             st.caption("표준 코포크 (중장기)")
@@ -2891,7 +2898,16 @@ with tab1:
                 cols=st.columns(_cp_n)
                 for i,(lbl,v) in enumerate(coppock.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i % _cp_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="양수(+)이고 상승 중이면 중장기 매수 유리. 음수(-)이면 조심")
+                    # 전환점 감지: 음수에서 상승 전환 = 가장 강력한 매수 신호
+                    if not v["pos"] and v["trend"]=="상승":
+                        icon="🔔"; _help="⭐ 전환점! 음수에서 반등 시작 — 역사적으로 가장 강력한 중장기 매수 신호"
+                    elif v["pos"] and v["trend"]=="상승":
+                        icon="🟢"; _help="양수이고 상승 중 — 중장기 매수 유리"
+                    elif v["pos"] and v["trend"]=="하락":
+                        icon="🟡"; _help="양수지만 하락 전환 — 모멘텀 약화 주의"
+                    else:
+                        icon="🔴"; _help="음수이고 하락 중 — 중장기 조심"
+                    cols[i % _cp_n].metric(lbl, f"{icon} {v['value']}", f"{arr} {v['trend']}", help=_help)
         with _cp2:
             st.caption("빠른 코포크 (단기)")
             if coppock_fast and "error" not in coppock_fast:
@@ -2899,7 +2915,15 @@ with tab1:
                 cols=st.columns(_cpf_n)
                 for i,(lbl,v) in enumerate(coppock_fast.items()):
                     arr="▲" if v["trend"]=="상승" else "▼"
-                    cols[i % _cpf_n].metric(lbl, f"{'🟢' if v['pos'] else '🔴'} {v['value']}", f"{arr} {v['trend']}", help="단기 코포크. 표준보다 빠르게 반응")
+                    if not v["pos"] and v["trend"]=="상승":
+                        icon="🔔"; _help="⭐ 단기 전환점! 음수에서 반등 시작"
+                    elif v["pos"] and v["trend"]=="상승":
+                        icon="🟢"; _help="단기 상승 추세"
+                    elif v["pos"] and v["trend"]=="하락":
+                        icon="🟡"; _help="단기 모멘텀 약화"
+                    else:
+                        icon="🔴"; _help="단기 하락 추세"
+                    cols[i % _cpf_n].metric(lbl, f"{icon} {v['value']}", f"{arr} {v['trend']}", help=_help)
         if zbt and "error" not in zbt:
             st.caption("반등 신호(ZBT)")
             _zbt_c1, _zbt_c2 = st.columns(2)
@@ -3047,7 +3071,7 @@ with tab2:
 
         # ── 수급 오실레이터 ──
         st.markdown('<p class="zone-header">💹 외국인·기관 매매 동향</p>', unsafe_allow_html=True)
-        st.caption("낮을수록(음수) = 🏚️ 빈집(매집 여력 큼, 좋은 신호) / 높을수록 = 이미 매집 중(추가 상승 여지 주의)")
+        st.caption("코스피 단기 모멘텀 오실레이터 (MA5/MA20 기준) — 양수=단기 상승 추세 / 음수=단기 하락 추세 | 업종별 상대강도로 자금 흐름 확인")
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
             st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
