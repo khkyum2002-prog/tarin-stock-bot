@@ -743,6 +743,40 @@ _FALLBACK = {
 
 NAME_TO_TICKER = {v.lower(): k for k, v in TICKER_NAMES.items()}
 
+@st.cache_data(ttl=timedelta(hours=24), show_spinner=False)
+def _load_all_kr_tickers() -> dict:
+    """pykrx로 KOSPI/KOSDAQ 전종목 {티커(.KS/.KQ): 한글명} 딕셔너리 (24h 캐시)"""
+    try:
+        from pykrx import stock as krx
+        import datetime as _dt
+        today = _dt.datetime.now()
+        # 최근 영업일(최대 7일 전까지)
+        date_str = today.strftime("%Y%m%d")
+        result = {}
+        for market, suffix in (("KOSPI", ".KS"), ("KOSDAQ", ".KQ")):
+            try:
+                codes = krx.get_market_ticker_list(date_str, market=market)
+                if not codes:
+                    # 주말/공휴일이면 가장 최근 영업일로 재시도
+                    for delta in range(1, 8):
+                        d = today - _dt.timedelta(days=delta)
+                        if d.weekday() < 5:
+                            codes = krx.get_market_ticker_list(d.strftime("%Y%m%d"), market=market)
+                            if codes:
+                                break
+                for code in (codes or []):
+                    try:
+                        name = krx.get_market_ticker_name(code)
+                        if name:
+                            result[f"{code}{suffix}"] = name
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return result
+    except Exception:
+        return {}
+
 NAVER_ETF_URL = "https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0"
 HEADERS = {"User-Agent":"Mozilla/5.0","Referer":"https://finance.naver.com"}
 SP500_TOP100 = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","BRK-B","TSLA","LLY","AVGO","JPM","UNH","XOM","V","MA","PG","JNJ","HD","COST","ABBV","MRK","NFLX","CVX","BAC","CRM","ORCL","AMD","PEP","ACN","WMT","LIN","MCD","CSCO","TMO","ADBE","PLTR","TMUS","INTU","GE","IBM","CAT","PM","AMGN","TXN","NOW","ISRG","QCOM","UBER","GS","VZ","HON","RTX","SPGI","DHR","NEE","MS","LOW","T","UNP","BKNG","AXP","SCHW","C","BLK","SYK","GILD","PFE","DE","MDT","BA","AMAT","ADI","LRCX","PANW","MU","TJX","ETN","VRTX","KLAC","SBUX","CB","MMC","SO","DUK","BSX","REGN","PLD","CI","ZTS","ICE","CME","WM","APH","MCO","SNPS","CDNS","ITW","NOC","EMR"]
@@ -3654,9 +3688,25 @@ with tab3:
     st.markdown('<p class="zone-header">🎯 언제 사면 좋을까 — 매수 타점</p>', unsafe_allow_html=True)
     st.caption("1년 데이터 기반 — 시가 대비 얼마나 낮게 지정가를 걸면 체결될지 평균 통계")
 
-    _sel_opts = [""] + sorted([f"{kr} ({t})" for t, kr in TICKER_NAMES.items()], key=lambda x: x[0])
-    sel_stock = st.selectbox("📋 목록에서 선택 (한글명 또는 영문 티커로 검색 가능)", _sel_opts, index=0, key="bt_sel")
-    ticker_input = st.text_input("또는 직접 입력 (티커·한글명 모두 가능, 쉼표로 여러 개)", placeholder="NVDA, 엔비디아, 005930.KS", key="bt_ticker")
+    # 전종목 dict 로드 (pykrx 24h 캐시, TICKER_NAMES 포함)
+    with st.spinner("종목 목록 로딩 중..."):
+        _kr_full = _load_all_kr_tickers()  # {ticker: 한글명}
+    _all_tickers: dict = {**TICKER_NAMES, **_kr_full}  # 기존 + 전종목 병합
+    _all_name_to_ticker = {v.lower(): k for k, v in _all_tickers.items()}
+
+    _sel_opts = [""] + sorted(
+        [f"{kr} ({t})" for t, kr in _all_tickers.items()],
+        key=lambda x: x[0]
+    )
+    sel_stock = st.selectbox(
+        f"📋 목록에서 선택 ({len(_all_tickers):,}개 전종목 검색 가능)",
+        _sel_opts, index=0, key="bt_sel"
+    )
+    ticker_input = st.text_input(
+        "또는 직접 입력 (한글명·6자리코드·티커 모두 가능, 쉼표로 여러 개)",
+        placeholder="삼성전자, 005930, NVDA, 005930.KS",
+        key="bt_ticker"
+    )
 
     st.divider()
     # 로컬 파일 상태 표시
@@ -3694,7 +3744,22 @@ with tab3:
             tickers_to_run.append(_t.strip())
         if ticker_input:
             for raw in [x.strip() for x in ticker_input.split(",") if x.strip()]:
-                resolved = NAME_TO_TICKER.get(raw.lower(), raw)
+                # 1) 기존 내장 dict (빠른 경로)
+                resolved = NAME_TO_TICKER.get(raw.lower())
+                # 2) pykrx 확장 전종목 dict
+                if not resolved:
+                    resolved = _all_name_to_ticker.get(raw.lower())
+                # 3) 6자리 숫자 코드 자동 인식 (예: 005930 → 005930.KS)
+                if not resolved and raw.isdigit() and len(raw) == 6:
+                    if (raw + ".KS") in _all_tickers:
+                        resolved = raw + ".KS"
+                    elif (raw + ".KQ") in _all_tickers:
+                        resolved = raw + ".KQ"
+                    else:
+                        resolved = raw + ".KS"  # KOSPI 기본
+                # 4) 그 외 (영문 티커 등) 그대로 사용
+                if not resolved:
+                    resolved = raw
                 tickers_to_run.append(resolved)
         if not tickers_to_run:
             st.warning("종목을 선택하거나 입력해주세요.")
