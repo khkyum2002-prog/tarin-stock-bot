@@ -3737,35 +3737,42 @@ with tab3:
     _eff_trading = io.BytesIO(st.session_state["c_trading_bytes"]) if "c_trading_bytes" in st.session_state else None
     _eff_weekly = io.BytesIO(st.session_state["c_weekly_bytes"]) if "c_weekly_bytes" in st.session_state else None
 
+    # 분석 결과를 session_state에 저장 — 버튼 클릭 후 리렌더링 시에도 차트 유지
+    if "tab3_tickers" not in st.session_state:
+        st.session_state["tab3_tickers"] = []
+        st.session_state["tab3_rt_quotes"] = {}
+
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
-        tickers_to_run = []
+        _new_tickers = []
         if sel_stock:
             _t = sel_stock.split("(")[-1].rstrip(")")
-            tickers_to_run.append(_t.strip())
+            _new_tickers.append(_t.strip())
         if ticker_input:
             for raw in [x.strip() for x in ticker_input.split(",") if x.strip()]:
-                # 1) 기존 내장 dict (빠른 경로)
                 resolved = NAME_TO_TICKER.get(raw.lower())
-                # 2) pykrx 확장 전종목 dict
                 if not resolved:
                     resolved = _all_name_to_ticker.get(raw.lower())
-                # 3) 6자리 숫자 코드 자동 인식 (예: 005930 → 005930.KS)
                 if not resolved and raw.isdigit() and len(raw) == 6:
                     if (raw + ".KS") in _all_tickers:
                         resolved = raw + ".KS"
                     elif (raw + ".KQ") in _all_tickers:
                         resolved = raw + ".KQ"
                     else:
-                        resolved = raw + ".KS"  # KOSPI 기본
-                # 4) 그 외 (영문 티커 등) 그대로 사용
+                        resolved = raw + ".KS"
                 if not resolved:
                     resolved = raw
-                tickers_to_run.append(resolved)
-        if not tickers_to_run:
+                _new_tickers.append(resolved)
+        if not _new_tickers:
             st.warning("종목을 선택하거나 입력해주세요.")
-        # 한국 종목만 실시간 현재가 일괄 조회
+        else:
+            _kr_t = [t for t in _new_tickers if t.endswith(".KS") or t.endswith(".KQ")]
+            st.session_state["tab3_tickers"] = _new_tickers
+            st.session_state["tab3_rt_quotes"] = get_naver_realtime_quote(_kr_t) if _kr_t else {}
+
+    if st.session_state.get("tab3_tickers"):
+        tickers_to_run = st.session_state["tab3_tickers"]
+        _rt_quotes = st.session_state["tab3_rt_quotes"]
         kr_tickers = [t for t in tickers_to_run if t.endswith(".KS") or t.endswith(".KQ")]
-        _rt_quotes = get_naver_realtime_quote(kr_tickers) if kr_tickers else {}
 
         # ── DART 기업 프로필 ──────────────────────────────────────────────────
         try: _dart_key = st.secrets.get("DART_API_KEY", "")
@@ -3900,7 +3907,7 @@ with tab3:
 
             # ── 수급 오실레이터 (한국 종목만) ───────────────────────────────────
             if t.endswith(".KS") or t.endswith(".KQ"):
-                st.caption("🏚️ 수급 오실레이터 — 외국인·기관 순매매 60일 (낮을수록=빈집=매집 여력 큼)")
+                st.caption("🏚️ 수급 오실레이터 — 기관+외국인 합산 순매매 (낮을수록=빈집=매집 여력 큼)")
                 with st.spinner("수급 데이터 로딩 중..."):
                     _so_c = get_stock_supply_osc(t, chart_days=60, agg_days=20)
                 if "error" not in _so_c:
@@ -3912,28 +3919,42 @@ with tab3:
                     else:
                         st.markdown('<div class="sig-red">⚠️ 수급 포화 — 최근 20일 이미 많이 매집됨. 추가 상승 여지 주의</div>', unsafe_allow_html=True)
                     _ch_c = _so_c["chart"]
-                    _fig_sc = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                            subplot_titles=("외국인 순매매(억원)","기관 순매매(억원)"),
-                                            vertical_spacing=0.08,
-                                            specs=[[{"secondary_y":True}],[{"secondary_y":True}]])
-                    for _ri, (_dk,_mk,_bc,_lbl) in enumerate([
-                        ("frgn_daily","frgn_ma5","#26a69a","외국인"),
-                        ("inst_daily","inst_ma5","#ef5350","기관"),
-                    ], start=1):
-                        _bclrs = ["#00c853" if v>=0 else "#ff4b4b" for v in _ch_c[_dk]]
-                        _fig_sc.add_trace(go.Bar(x=_ch_c["dates"],y=_ch_c[_dk],
-                            name=f"{_lbl} 일별",marker_color=_bclrs,opacity=0.7,
-                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=False)
-                        _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"],y=_ch_c[_mk],
-                            name=f"{_lbl} MA5",line=dict(color=_bc,width=2),
-                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=False)
-                        _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"],y=_ch_c["price"],
-                            name="종가",line=dict(color="#E0E0E0",width=1.5),
-                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=True)
-                    _fig_sc.update_layout(height=430, margin=dict(l=10,r=60,t=40,b=10),
+                    # HTS 스타일: 기관+외국인 합산 오실레이터 (위) + 주가 (아래)
+                    _comb_daily = [f + i for f, i in zip(_ch_c["frgn_daily"], _ch_c["inst_daily"])]
+                    _comb_ma5   = pd.Series(_comb_daily).rolling(5, min_periods=1).mean().tolist()
+                    _comb_cum20 = pd.Series(_comb_daily).rolling(20, min_periods=1).sum().tolist()
+                    _sc_bclrs = ["#00c853" if v >= 0 else "#ff4b4b" for v in _comb_daily]
+                    _fig_sc = make_subplots(
+                        rows=3, cols=1, shared_xaxes=True,
+                        subplot_titles=("합산 수급 오실레이터(억원)", "기관 단독", "외국인 단독"),
+                        row_heights=[0.45, 0.275, 0.275], vertical_spacing=0.05
+                    )
+                    # Row1: 합산 오실레이터
+                    _fig_sc.add_trace(go.Bar(x=_ch_c["dates"], y=_comb_daily,
+                        name="합산 순매수", marker_color=_sc_bclrs, opacity=0.75), row=1, col=1)
+                    _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"], y=_comb_ma5,
+                        name="MA5", line=dict(color="#FFD700", width=2)), row=1, col=1)
+                    _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"], y=_comb_cum20,
+                        name="20일누적", line=dict(color="#FF8C00", width=1.5, dash="dot")), row=1, col=1)
+                    _fig_sc.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.4)", row=1, col=1)
+                    # Row2: 기관 단독
+                    _i_bclrs = ["#00c853" if v >= 0 else "#ff4b4b" for v in _ch_c["inst_daily"]]
+                    _fig_sc.add_trace(go.Bar(x=_ch_c["dates"], y=_ch_c["inst_daily"],
+                        name="기관", marker_color=_i_bclrs, opacity=0.7, showlegend=False), row=2, col=1)
+                    _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"], y=_ch_c["inst_ma5"],
+                        name="기관MA5", line=dict(color="#ef5350", width=1.5), showlegend=False), row=2, col=1)
+                    _fig_sc.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=2, col=1)
+                    # Row3: 외국인 단독
+                    _f_bclrs = ["#00c853" if v >= 0 else "#ff4b4b" for v in _ch_c["frgn_daily"]]
+                    _fig_sc.add_trace(go.Bar(x=_ch_c["dates"], y=_ch_c["frgn_daily"],
+                        name="외국인", marker_color=_f_bclrs, opacity=0.7, showlegend=False), row=3, col=1)
+                    _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"], y=_ch_c["frgn_ma5"],
+                        name="외국인MA5", line=dict(color="#26a69a", width=1.5), showlegend=False), row=3, col=1)
+                    _fig_sc.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=3, col=1)
+                    _fig_sc.update_layout(height=520, margin=dict(l=10, r=20, t=40, b=10),
                         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                        font_color='#e0e0e0', barmode='relative',
-                        legend=dict(orientation='h',y=1.06), dragmode=False)
+                        font_color='#e0e0e0', showlegend=True,
+                        legend=dict(orientation='h', y=1.05), dragmode=False)
                     _fig_sc.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                     _fig_sc.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
                     st.plotly_chart(_fig_sc, use_container_width=True, config={"scrollZoom": False})
@@ -4068,38 +4089,45 @@ with tab3:
                 close_col_tsd = next((c for c in df_tsd.columns if '종가' in str(c)), None)
                 buy_label = buy_col if buy_col else "매수수량"
                 sell_label = sell_col if sell_col else "매도수량"
-                st.markdown('<p class="zone-header">🏦 수급 데이터 (Excel)</p>', unsafe_allow_html=True)
+                st.markdown('<p class="zone-header">🏦 기관 수급 오실레이터 (Excel HTS)</p>', unsafe_allow_html=True)
                 if buy_col and close_col_tsd:
                     df_tsd[date_col_tsd] = pd.to_datetime(df_tsd[date_col_tsd], errors='coerce')
                     df_tsd = df_tsd.dropna(subset=[date_col_tsd]).sort_values(date_col_tsd)
-                    # 유효 데이터만 (종가 != 0)
                     df_tsd = df_tsd[pd.to_numeric(df_tsd[close_col_tsd], errors='coerce').fillna(0) != 0]
                     df_tsd[buy_col] = pd.to_numeric(df_tsd[buy_col], errors='coerce').fillna(0)
                     df_tsd[close_col_tsd] = pd.to_numeric(df_tsd[close_col_tsd], errors='coerce')
                     dates_tsd = [str(d.date()) for d in df_tsd[date_col_tsd]]
                     buy_vals_tsd = df_tsd[buy_col].tolist()
-                    bar_colors_tsd = ["#00c853" if v >= 0 else "#ff4b4b" for v in buy_vals_tsd]
-                    fig_tsd = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig_tsd.add_trace(go.Bar(x=dates_tsd, y=buy_vals_tsd, name=buy_label,
-                                             marker_color=bar_colors_tsd, opacity=0.8), secondary_y=False)
+                    # 순매수 = 매수 - 매도 (오실레이터)
                     if sell_col:
                         df_tsd[sell_col] = pd.to_numeric(df_tsd[sell_col], errors='coerce').fillna(0)
-                        fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[sell_col].tolist(),
-                                                     name=sell_label,
-                                                     line=dict(color="#FF8C00", width=1.5, dash="dot")), secondary_y=False)
+                        net_vals_tsd = [b - s for b, s in zip(buy_vals_tsd, df_tsd[sell_col].tolist())]
+                        osc_cap = f"순매수 = {buy_col} − {sell_col}"
+                    else:
+                        net_vals_tsd = buy_vals_tsd
+                        osc_cap = buy_label
+                    net_ma5_tsd = pd.Series(net_vals_tsd).rolling(5, min_periods=1).mean().tolist()
+                    bar_clr_tsd = ["#00c853" if v >= 0 else "#ff4b4b" for v in net_vals_tsd]
+                    fig_tsd = make_subplots(
+                        rows=2, cols=1, shared_xaxes=True,
+                        subplot_titles=("기관 순매수 오실레이터 (수량)", "주가"),
+                        row_heights=[0.58, 0.42], vertical_spacing=0.06
+                    )
+                    fig_tsd.add_trace(go.Bar(x=dates_tsd, y=net_vals_tsd, name="순매수",
+                                             marker_color=bar_clr_tsd, opacity=0.75), row=1, col=1)
+                    fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=net_ma5_tsd, name="MA5",
+                                                 line=dict(color="#FFD700", width=2)), row=1, col=1)
+                    fig_tsd.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.4)", row=1, col=1)
                     fig_tsd.add_trace(go.Scatter(x=dates_tsd, y=df_tsd[close_col_tsd].tolist(), name="종가",
-                                                  line=dict(color="#E0E0E0", width=2)), secondary_y=True)
-                    fig_tsd.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", secondary_y=False)
-                    fig_tsd.update_layout(height=400, margin=dict(l=10,r=60,t=30,b=10),
+                                                 line=dict(color="#E0E0E0", width=1.5)), row=2, col=1)
+                    fig_tsd.update_layout(height=480, margin=dict(l=10, r=20, t=40, b=10),
                                           plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                                          font_color="#e0e0e0", barmode="overlay",
-                                          legend=dict(orientation="h", y=1.08), dragmode=False)
-                    fig_tsd.update_yaxes(title_text="수량", secondary_y=False,
-                                         showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-                    fig_tsd.update_yaxes(title_text="종가(원)", secondary_y=True, showgrid=False)
+                                          font_color="#e0e0e0", showlegend=True,
+                                          legend=dict(orientation="h", y=1.05), dragmode=False)
                     fig_tsd.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+                    fig_tsd.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
                     st.plotly_chart(fig_tsd, use_container_width=True, config={"scrollZoom": False})
-                    st.caption(f"시트: {_tsd_sn} | 매수: {buy_col} | 매도: {sell_col}")
+                    st.caption(f"시트: {_tsd_sn} | {osc_cap}")
                 else:
                     st.warning(f"매수 컬럼 미감지. 컬럼 목록: {list(df_tsd.columns)}")
             except Exception as e:
