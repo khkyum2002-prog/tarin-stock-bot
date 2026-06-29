@@ -2976,7 +2976,7 @@ with tab2:
     _auto_ran_key = f"kr_auto_ran_{_today_str}"
 
     with st.expander("❓ 어려운 용어 설명"):
-        st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 강함 / 음수=파는 힘 강함")
+        st.markdown("**💹 수급 오실레이터** — 낮을수록(빈집) 매집 여력 큼. 음수/낮음=🏚️빈집(좋음) / 높음=이미 매집됨(주의)")
         st.markdown("**💪 상대강도(RS)** — 다른 ETF 대비 강도. 70점↑ 강세 / 50점↓ 약세")
         st.markdown("**🏠 빈집 주도주** — 주도 업종 중 아직 덜 오른 종목. 따라 오를 가능성")
         st.markdown("**⚡ 임펄스** — 단기 추세. 🟢강세=주가+MACD 모두 상승 / 🔴약세=모두 하락")
@@ -3047,7 +3047,7 @@ with tab2:
 
         # ── 수급 오실레이터 ──
         st.markdown('<p class="zone-header">💹 외국인·기관 매매 동향</p>', unsafe_allow_html=True)
-        st.caption("양수(+) = 외국인·기관이 사는 힘이 강함 / 음수(-) = 파는 힘이 강함")
+        st.caption("낮을수록(음수) = 🏚️ 빈집(매집 여력 큼, 좋은 신호) / 높을수록 = 이미 매집 중(추가 상승 여지 주의)")
         if supply and "error" not in supply:
             osc=supply["kospi_osc"]
             st.metric(f"{'🟢' if osc>0 else '🔴'} 코스피 기준 오실레이터", f"{osc:+.2f}")
@@ -3543,7 +3543,7 @@ with tab3:
         st.markdown("**📏 MA10(10주 이평)** — 최근 10주 평균가. 현재가가 이 위에 있으면 중기 상승추세")
         st.markdown("**📉 시가→저가 낙폭** — 장 시작 후 최대 낙폭 평균. 이 수치만큼 낮게 지정가 설정 참고")
         st.markdown("**📈 고가→종가 하락** — 장중 최고점→종가 평균 낙폭. 고점 추격매수 위험 정도")
-        st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 / 음수=파는 힘")
+        st.markdown("**💹 수급 오실레이터** — 낮을수록(빈집) 매집 여력 큼. 음수/낮음=🏚️빈집(좋음) / 높음=이미 매집됨(주의)")
         st.markdown("**📋 컨센서스** — 증권사 실적 전망치. 전망이 올라가는 종목이 주가도 오르는 경향")
 
     st.markdown('<p class="zone-header">🎯 언제 사면 좋을까 — 매수 타점</p>', unsafe_allow_html=True)
@@ -3886,7 +3886,7 @@ with tab3:
 
         st.divider()
         st.markdown('<p class="zone-header">📡 외국인 매매</p>', unsafe_allow_html=True)
-        st.caption("외국인이 60일간 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
+        st.caption("수급이 낮을수록(비어있을수록) = 🏚️ 빈집 = 매집 여력이 큼 (좋은 신호) | 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3900,11 +3900,18 @@ with tab3:
             st.markdown(f"#### 📌 **{t}** {kr}")
             f_sign = "+" if so["frgn_agg_bil"] >= 0 else ""
             i_sign = "+" if so["inst_agg_bil"] >= 0 else ""
+            total_agg = so["frgn_agg_bil"] + so["inst_agg_bil"]
+            if total_agg <= 0:
+                st.markdown('<div class="sig-green">🏚️ 빈집 — 외국인·기관이 아직 덜 담음. 매집 여력이 큼 (좋은 신호)</div>', unsafe_allow_html=True)
+            elif total_agg <= 100:
+                st.markdown('<div class="sig-yellow">🟡 중립 — 수급 보통 구간. 추세 확인 필요</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="sig-red">⚠️ 수급 포화 — 이미 많이 매집됨. 추가 상승 여지 줄어듦</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             c1.metric("20일 외국인", f"{f_sign}{so['frgn_agg_bil']:.1f}억",
-                      "🟢 순매수" if so["frgn_agg_bil"] >= 0 else "🔴 순매도")
+                      "🏚️ 빈집" if so["frgn_agg_bil"] <= 0 else "⚠️ 매집 중")
             c2.metric("20일 기관", f"{i_sign}{so['inst_agg_bil']:.1f}억",
-                      "🟢 순매수" if so["inst_agg_bil"] >= 0 else "🔴 순매도")
+                      "🏚️ 빈집" if so["inst_agg_bil"] <= 0 else "⚠️ 매집 중")
             st.metric("현재가", f"{so['latest_close']:,}원")
             ch = so["chart"]
             # 외국인/기관 2행 차트
@@ -3938,7 +3945,7 @@ with tab3:
             st.divider()
 
         st.markdown('<p class="zone-header">🏦 기관 매매</p>', unsafe_allow_html=True)
-        st.caption("기관이 얼마나 사고 팔았는지 — 한국 종목(.KS/.KQ)만 지원")
+        st.caption("수급이 낮을수록(비어있을수록) = 🏚️ 빈집 = 매집 여력 큼 (좋은 신호) | 한국 종목(.KS/.KQ)만 지원")
         for t in tickers_to_run:
             kr = TICKER_NAMES.get(t, "")
             if not (t.endswith(".KS") or t.endswith(".KQ")):
@@ -3952,11 +3959,18 @@ with tab3:
             st.markdown(f"#### 📌 **{t}** {kr}")
             si_sign = "+" if si["inst_sum_bil"] >= 0 else ""
             sf_sign = "+" if si.get("frgn_sum_bil", 0) >= 0 else ""
+            inst_total = si["inst_sum_bil"] + si.get("frgn_sum_bil", 0)
+            if inst_total <= 0:
+                st.markdown('<div class="sig-green">🏚️ 빈집 — 기관·외국인 수급 비어있음. 매집 여력 큼 (좋은 신호)</div>', unsafe_allow_html=True)
+            elif inst_total <= 100:
+                st.markdown('<div class="sig-yellow">🟡 중립 — 수급 보통 구간</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="sig-red">⚠️ 수급 포화 — 이미 많이 매집됨</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             c1.metric("20일 기관 순매수", f"{si_sign}{si['inst_sum_bil']:.1f}억",
-                      "🟢 순매수" if si["inst_sum_bil"] >= 0 else "🔴 순매도")
+                      "🏚️ 빈집" if si["inst_sum_bil"] <= 0 else "⚠️ 매집 중")
             c2.metric("20일 외국인 순매수(KRX)", f"{sf_sign}{si.get('frgn_sum_bil', 0):.1f}억",
-                      "🟢 순매수" if si.get("frgn_sum_bil", 0) >= 0 else "🔴 순매도")
+                      "🏚️ 빈집" if si.get("frgn_sum_bil", 0) <= 0 else "⚠️ 매집 중")
             ch_si = si["chart"]
             bc_si = ["#00c853" if v >= 0 else "#ff4b4b" for v in ch_si["inst_daily"]]
             fig_si = go.Figure()
