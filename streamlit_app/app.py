@@ -2486,6 +2486,87 @@ def get_stock_inst_osc(ticker, days=20):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=timedelta(hours=1), show_spinner=False)
+def get_stock_price_chart(ticker: str, days: int = 180):
+    """yfinance 일봉 OHLCV + MA(20/60/120/200) 반환"""
+    import math
+    try:
+        t = ticker.strip().upper()
+        raw = yf.download(t, period="2y", auto_adjust=True, progress=False)
+        if raw.empty:
+            return {"error": f"{t} 데이터 없음"}
+        df = raw.copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(1)
+        df = df.dropna(subset=["Close"])
+        df["ma20"]  = df["Close"].rolling(20).mean()
+        df["ma60"]  = df["Close"].rolling(60).mean()
+        df["ma120"] = df["Close"].rolling(120).mean()
+        df["ma200"] = df["Close"].rolling(200).mean()
+        df = df.tail(days)
+        def _safe(s):
+            return [None if (isinstance(v, float) and math.isnan(v)) else round(float(v), 2) for v in s]
+        return {
+            "dates":  [str(d.date()) for d in df.index],
+            "open":   [round(float(v), 2) for v in df["Open"]],
+            "high":   [round(float(v), 2) for v in df["High"]],
+            "low":    [round(float(v), 2) for v in df["Low"]],
+            "close":  [round(float(v), 2) for v in df["Close"]],
+            "volume": [int(v) for v in df["Volume"]],
+            "ma20":   _safe(df["ma20"]),
+            "ma60":   _safe(df["ma60"]),
+            "ma120":  _safe(df["ma120"]),
+            "ma200":  _safe(df["ma200"]),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@st.cache_data(ttl=timedelta(hours=4), show_spinner=False)
+def get_stock_financials(ticker: str):
+    """분기 영업이익·매출·순이익·EPS + 애널리스트 목표가 (yfinance quarterly_income_stmt)"""
+    import math
+    t = ticker.strip().upper()
+    try:
+        tk = yf.Ticker(t)
+        qi = None
+        for attr in ("quarterly_income_stmt", "quarterly_financials"):
+            try:
+                val = getattr(tk, attr, None)
+                if val is not None and not val.empty:
+                    qi = val; break
+            except Exception:
+                continue
+        if qi is None or qi.empty:
+            return {"error": "재무 데이터 없음 (yfinance)"}
+        qi_t = qi.T.sort_index()
+        def _bil(val):
+            try:
+                v = float(val)
+                return round(v / 1e8, 1) if not math.isnan(v) else None
+            except Exception:
+                return None
+        quarters = []
+        for dt, row in qi_t.iterrows():
+            op  = row.get("Operating Income") or row.get("Ebit")
+            rev = row.get("Total Revenue")
+            net = row.get("Net Income")
+            eps_v = row.get("Basic EPS") or row.get("Diluted EPS")
+            try: eps = round(float(eps_v), 0) if eps_v and not math.isnan(float(eps_v)) else None
+            except: eps = None
+            quarters.append({"date": str(dt.date())[:7],
+                              "op_profit": _bil(op), "revenue": _bil(rev),
+                              "net_income": _bil(net), "eps": eps})
+        if not quarters:
+            return {"error": "분기 데이터 없음"}
+        target_price = None
+        try: target_price = tk.info.get("targetMeanPrice") or tk.info.get("targetMedianPrice")
+        except: pass
+        return {"ticker": t, "quarters": quarters[-8:], "target_price": target_price}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @st.cache_data(ttl=timedelta(hours=2))
 def get_kr_consensus_auto(top_n=20):
     """WiseReport(네이버 내장) 컨센서스 자동 스크리닝 — EPS성장·매수비율·TP인상비율 기반"""
@@ -3622,7 +3703,8 @@ with tab3:
         _rt_quotes = get_naver_realtime_quote(kr_tickers) if kr_tickers else {}
 
         # ── DART 기업 프로필 ──────────────────────────────────────────────────
-        _dart_key = st.secrets.get("DART_API_KEY", "") if hasattr(st, "secrets") else ""
+        try: _dart_key = st.secrets.get("DART_API_KEY", "")
+        except Exception: _dart_key = ""
         st.markdown('<p class="zone-header">🏢 기업 정보</p>', unsafe_allow_html=True)
         if not _dart_key:
             st.caption("DART API 키가 설정되지 않았습니다. Streamlit Secrets에 DART_API_KEY를 추가하면 분기/사업보고서 핵심 내용(사업개요·주요제품·수주현황)을 자동으로 표시합니다.")
@@ -3666,6 +3748,135 @@ with tab3:
                     st.markdown(_dp["sales_html"], unsafe_allow_html=True)
                 st.divider()
 
+        # ── 종합 차트 (주가 + 수급 오실레이터 + 영업이익) ─────────────────────────
+        st.markdown('<p class="zone-header">📊 종합 차트</p>', unsafe_allow_html=True)
+        st.caption("📈 주가(캔들+이동평균) · 🏚️ 수급 오실레이터(외국인·기관) · 💰 분기 영업이익 추종")
+        for t in tickers_to_run:
+            kr = TICKER_NAMES.get(t, "")
+            st.markdown(f"#### 📌 **{t}** {kr}")
+
+            # ── 주가 차트 + 영업이익 (좌우 배치) ───────────────────────────────
+            _pc_col, _fp_col = st.columns([3, 2])
+            with _pc_col:
+                st.caption("📈 주가 차트 (캔들 + MA20/60/120/200 + 거래량)")
+                with st.spinner("주가 로딩 중..."):
+                    _pc = get_stock_price_chart(t, days=180)
+                if "error" not in _pc:
+                    _fig_pc = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                            row_heights=[0.72, 0.28], vertical_spacing=0.03,
+                                            subplot_titles=("", "거래량"))
+                    _fig_pc.add_trace(go.Candlestick(
+                        x=_pc["dates"], open=_pc["open"], high=_pc["high"],
+                        low=_pc["low"], close=_pc["close"], name="주가",
+                        increasing_line_color="#00c853", decreasing_line_color="#ff4b4b",
+                        showlegend=False), row=1, col=1)
+                    for _mak, _mac, _man in [("ma20","#FFD700","MA20"),("ma60","#FF8C00","MA60"),
+                                              ("ma120","#87CEEB","MA120"),("ma200","#9370DB","MA200")]:
+                        if any(v is not None for v in _pc.get(_mak,[])):
+                            _fig_pc.add_trace(go.Scatter(x=_pc["dates"], y=_pc[_mak], name=_man,
+                                line=dict(color=_mac, width=1.2), mode="lines"), row=1, col=1)
+                    _vol_c = ["#00c853" if _pc["close"][i] >= _pc["open"][i] else "#ff4b4b"
+                              for i in range(len(_pc["close"]))]
+                    _fig_pc.add_trace(go.Bar(x=_pc["dates"], y=_pc["volume"], name="거래량",
+                        marker_color=_vol_c, opacity=0.6, showlegend=False), row=2, col=1)
+                    _fig_pc.update_layout(height=490, margin=dict(l=10,r=10,t=25,b=10),
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='#e0e0e0', showlegend=True,
+                        legend=dict(orientation='h', y=1.05),
+                        xaxis_rangeslider_visible=False, dragmode=False)
+                    _fig_pc.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    _fig_pc.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    st.plotly_chart(_fig_pc, use_container_width=True, config={"scrollZoom": False})
+                else:
+                    st.warning(f"주가 차트: {_pc['error']}")
+
+            with _fp_col:
+                st.caption("💰 분기 영업이익 & 매출 추종 (가이던스)")
+                with st.spinner("실적 로딩 중..."):
+                    _fp = get_stock_financials(t)
+                if "error" not in _fp and _fp.get("quarters"):
+                    _qs = _fp["quarters"]
+                    _qdates = [q["date"] for q in _qs]
+                    _op_vals = [q.get("op_profit") for q in _qs]
+                    _rev_vals = [q.get("revenue") for q in _qs]
+                    _op_clrs = []
+                    for _i, _v in enumerate(_op_vals):
+                        if _v is None: _op_clrs.append("#888888")
+                        elif _i == 0 or _op_vals[_i-1] is None: _op_clrs.append("#2f81f7")
+                        else: _op_clrs.append("#00c853" if _v >= _op_vals[_i-1] else "#ff4b4b")
+                    _has_rev = any(v is not None for v in _rev_vals)
+                    _fig_fp = make_subplots(rows=2 if _has_rev else 1, cols=1,
+                                            shared_xaxes=True,
+                                            subplot_titles=(["영업이익(억)", "매출(억)"] if _has_rev else ["영업이익(억)"]),
+                                            vertical_spacing=0.1)
+                    _fig_fp.add_trace(go.Bar(x=_qdates, y=_op_vals, name="영업이익",
+                                             marker_color=_op_clrs), row=1, col=1)
+                    _fig_fp.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)", row=1, col=1)
+                    if _has_rev:
+                        _fig_fp.add_trace(go.Bar(x=_qdates, y=_rev_vals, name="매출",
+                                                  marker_color="#2f81f7", opacity=0.7), row=2, col=1)
+                    if _fp.get("target_price"):
+                        _fig_fp.add_annotation(xref="paper", yref="paper", x=0.98, y=1.08,
+                            text=f"목표가 {_fp['target_price']:,.0f}", showarrow=False,
+                            font=dict(color="#FFD700", size=10))
+                    _fig_fp.update_layout(height=490, margin=dict(l=10,r=10,t=35,b=10),
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='#e0e0e0', showlegend=True,
+                        legend=dict(orientation='h', y=1.06), dragmode=False)
+                    _fig_fp.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    _fig_fp.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    st.plotly_chart(_fig_fp, use_container_width=True, config={"scrollZoom": False})
+                    _eps_rows = [(q["date"], q["eps"]) for q in _qs if q.get("eps") is not None]
+                    if _eps_rows:
+                        st.dataframe(pd.DataFrame(_eps_rows, columns=["분기","EPS(원)"]),
+                                     use_container_width=True, hide_index=True)
+                else:
+                    st.caption(f"실적 데이터: {_fp.get('error','없음')} (국내 종목은 yfinance 제공 한계 있음)")
+
+            # ── 수급 오실레이터 (한국 종목만) ───────────────────────────────────
+            if t.endswith(".KS") or t.endswith(".KQ"):
+                st.caption("🏚️ 수급 오실레이터 — 외국인·기관 순매매 60일 (낮을수록=빈집=매집 여력 큼)")
+                with st.spinner("수급 데이터 로딩 중..."):
+                    _so_c = get_stock_supply_osc(t, chart_days=60, agg_days=20)
+                if "error" not in _so_c:
+                    _so_total = _so_c["frgn_agg_bil"] + _so_c["inst_agg_bil"]
+                    if _so_total <= 0:
+                        st.markdown('<div class="sig-green">🏚️ 빈집 — 최근 20일 외국인·기관 순매도/미매집. 매집 여력 큼 (좋은 신호)</div>', unsafe_allow_html=True)
+                    elif _so_total <= 100:
+                        st.markdown('<div class="sig-yellow">🟡 중립 — 수급 보통 구간. 추세 확인 필요</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="sig-red">⚠️ 수급 포화 — 최근 20일 이미 많이 매집됨. 추가 상승 여지 주의</div>', unsafe_allow_html=True)
+                    _ch_c = _so_c["chart"]
+                    _fig_sc = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                            subplot_titles=("외국인 순매매(억원)","기관 순매매(억원)"),
+                                            vertical_spacing=0.08,
+                                            specs=[[{"secondary_y":True}],[{"secondary_y":True}]])
+                    for _ri, (_dk,_mk,_bc,_lbl) in enumerate([
+                        ("frgn_daily","frgn_ma5","#26a69a","외국인"),
+                        ("inst_daily","inst_ma5","#ef5350","기관"),
+                    ], start=1):
+                        _bclrs = ["#00c853" if v>=0 else "#ff4b4b" for v in _ch_c[_dk]]
+                        _fig_sc.add_trace(go.Bar(x=_ch_c["dates"],y=_ch_c[_dk],
+                            name=f"{_lbl} 일별",marker_color=_bclrs,opacity=0.7,
+                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=False)
+                        _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"],y=_ch_c[_mk],
+                            name=f"{_lbl} MA5",line=dict(color=_bc,width=2),
+                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=False)
+                        _fig_sc.add_trace(go.Scatter(x=_ch_c["dates"],y=_ch_c["price"],
+                            name="종가",line=dict(color="#E0E0E0",width=1.5),
+                            showlegend=(_ri==1)), row=_ri,col=1,secondary_y=True)
+                    _fig_sc.update_layout(height=430, margin=dict(l=10,r=60,t=40,b=10),
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font_color='#e0e0e0', barmode='relative',
+                        legend=dict(orientation='h',y=1.06), dragmode=False)
+                    _fig_sc.update_xaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    _fig_sc.update_yaxes(showgrid=True, gridcolor='rgba(255,255,255,0.08)')
+                    st.plotly_chart(_fig_sc, use_container_width=True, config={"scrollZoom": False})
+                else:
+                    st.caption(f"수급 데이터: {_so_c.get('error','없음')}")
+            st.divider()
+
+        st.divider()
         for t in tickers_to_run:
             with st.spinner(f"{t} 분석 중..."):
                 res = get_buy_timing(t)
