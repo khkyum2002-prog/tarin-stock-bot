@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-삼성전자 빈집전환 감지 스크립트
+삼성전자 빈집전환 감지 + Windows 팝업 알림
 조건: 40일 누적 기관+외국인 순매수 < 0 (빈집) AND 최근 5일 > 0 (전환)
 """
-import sys, os, requests
+import sys, os, subprocess, datetime, requests
 from bs4 import BeautifulSoup as BS
 
-TARGET = "005930"  # 삼성전자
+TARGET = "005930"
 HDRS = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "binzip_log.txt")
 
 
 def fetch_daily_supply(code: str, days: int = 40) -> list:
@@ -44,44 +45,64 @@ def fetch_daily_supply(code: str, days: int = 40) -> list:
     return daily
 
 
+def windows_notify(title: str, msg: str):
+    ps_code = f"""
+Add-Type -AssemblyName System.Windows.Forms
+$n = New-Object System.Windows.Forms.NotifyIcon
+$n.Icon = [System.Drawing.SystemIcons]::Warning
+$n.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning
+$n.BalloonTipTitle = '{title}'
+$n.BalloonTipText = '{msg}'
+$n.Visible = $true
+$n.ShowBalloonTip(15000)
+Start-Sleep 16
+$n.Dispose()
+"""
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_code],
+        creationflags=0x08000000,
+    )
+
+
+def log(msg: str):
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    line = f"[{ts}] {msg}"
+    print(line)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
 def main():
+    log("=== 삼성전자 빈집전환 체크 시작 ===")
     daily = fetch_daily_supply(TARGET, days=40)
 
     if len(daily) < 5:
-        print("데이터 부족 -- 스킵")
+        log("데이터 부족 -- 스킵")
         sys.exit(0)
 
     short5 = sum(daily[:5])
     long40 = sum(daily[:40]) if len(daily) >= 40 else sum(daily)
-
     short5_uk = short5 / 1e8
     long40_uk = long40 / 1e8
 
-    print(f"삼성전자 | 5일 수급: {short5_uk:+.1f}억  40일 누적: {long40_uk:+.1f}억")
+    log(f"5일 수급: {short5_uk:+.1f}억  |  40일 누적: {long40_uk:+.1f}억")
 
-    is_empty = long40 < 0
+    is_empty  = long40 < 0
     is_inflow = short5 > 0
-    is_binzip = is_empty and is_inflow
 
-    signal_file = os.environ.get("GITHUB_OUTPUT", "")
-
-    if is_binzip:
-        print("ALERT: 빈집전환 신호 감지!")
-        if signal_file:
-            with open(signal_file, "a", encoding="utf-8") as f:
-                f.write(f"binzip=true\n")
-                f.write(f"short5={short5_uk:.1f}\n")
-                f.write(f"long40={long40_uk:.1f}\n")
+    if is_empty and is_inflow:
+        log("!!! 빈집전환 신호 감지 !!!")
+        windows_notify(
+            "삼성전자 빈집전환!",
+            f"5일: {short5_uk:+.1f}억 / 40일누적: {long40_uk:+.1f}억\n수급 바닥 반등 시작 패턴"
+        )
     else:
-        status = []
+        reasons = []
         if not is_empty:
-            status.append(f"40일 누적 양수({long40_uk:+.1f}억) -- 아직 빈집 아님")
+            reasons.append(f"40일 누적 양수({long40_uk:+.1f}억)")
         if not is_inflow:
-            status.append(f"5일 수급 음수({short5_uk:+.1f}억) -- 아직 전환 안됨")
-        print("정상: " + " / ".join(status))
-        if signal_file:
-            with open(signal_file, "a", encoding="utf-8") as f:
-                f.write("binzip=false\n")
+            reasons.append(f"5일 수급 음수({short5_uk:+.1f}억)")
+        log("신호 없음: " + " / ".join(reasons))
 
     sys.exit(0)
 

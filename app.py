@@ -14,6 +14,18 @@ try:
 except ImportError:
     _HAS_AUTOREFRESH = False
 
+try:
+    from streamlit_extras.colored_header import colored_header as _clr_hdr
+    _HAS_CLR_HDR = True
+except ImportError:
+    _HAS_CLR_HDR = False
+
+try:
+    import streamlit_shadcn_ui as _ui
+    _HAS_SHADCN = True
+except ImportError:
+    _HAS_SHADCN = False
+
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
@@ -191,6 +203,47 @@ div[data-testid="stToggle"] label { font-size: 0.875rem; }
 /* ── 섹터 태그 ── */
 .sector-tag { display:inline-block; background:#21262d; border:1px solid #30363d; border-radius:6px; padding:3px 10px; margin:2px; font-size:0.80rem; color:#8b949e; }
 .sector-tag.on { background:#1f3a2a; border-color:#3fb950; color:#3fb950; font-weight:600; }
+
+/* ── 대시보드 ── */
+.dash-status-green  { background:rgba(63,185,80,0.10);  border:1.5px solid #3fb950; border-radius:12px; padding:20px 28px; margin:4px 0 16px; text-align:center; }
+.dash-status-red    { background:rgba(248,81,73,0.10);   border:1.5px solid #f85149; border-radius:12px; padding:20px 28px; margin:4px 0 16px; text-align:center; }
+.dash-status-yellow { background:rgba(210,153,34,0.10);  border:1.5px solid #d29922; border-radius:12px; padding:20px 28px; margin:4px 0 16px; text-align:center; }
+.dash-metric { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px 8px; text-align:center; min-height:78px; }
+
+/* ── 개선된 zone-header ── */
+.zone-header {
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    color: #8b949e !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    margin: 1.6rem 0 0.8rem !important;
+    padding: 0 0 0.5rem !important;
+    border-bottom: 1px solid #21262d !important;
+    display: block !important;
+}
+
+/* ── sig 카드 개선 ── */
+.sig-green, .sig-red, .sig-yellow {
+    border-left-width: 4px !important;
+    padding: 10px 16px !important;
+    line-height: 1.6 !important;
+}
+
+/* ── 메트릭 카드 hover ── */
+div[data-testid="metric-container"]:hover {
+    border-color: #388bfd;
+    transition: border-color 0.2s;
+}
+
+/* ── info 박스 compact ── */
+div[data-testid="stAlert"] {
+    padding: 8px 16px !important;
+    font-size: 0.83rem !important;
+}
+
+/* ── spinner 텍스트 ── */
+div[data-testid="stSpinner"] p { font-size: 0.8rem !important; color: #7d8590 !important; }
 </style>""", unsafe_allow_html=True)
 
 _days = ["월","화","수","목","금","토","일"]
@@ -301,11 +354,12 @@ for _ak, _sk in _AUTO_LOAD_MAP.items():
         if _b:
             st.session_state[_sk] = _b
 
-tab4, tab2, tab3, tab1, tab5 = st.tabs(["🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장", "📦 수출 데이터"])
+tab0, tab4, tab2, tab3, tab1, tab5 = st.tabs(["📊 대시보드", "🎯 종목 선정", "🇰🇷 국내 시장", "🔍 종목 분석", "🌎 미국 시장", "📦 수출 데이터"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
 def _dl(ticker, period="3y", start=None, end=None, retries=3):
     for i in range(retries):
         try:
@@ -697,6 +751,7 @@ NASDAQ100 = ["AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","AMAT","AMD","AMGN","
 # ─────────────────────────────────────────────────────────────────────────────
 # 미국 지표 함수
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_canary_signal():
     try:
         end = datetime.today().strftime("%Y-%m-%d")
@@ -709,6 +764,7 @@ def get_canary_signal():
         return {"qqq_mom":results["QQQ"],"tip_mom":results["TIP"],"mode":"공격" if all(v>0 for v in results.values()) else "방어"}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_bofa_heat():
     try:
         tm = {"SPY":"SPY","QQQ":"QQQ","RSP":"RSP","VIX":"^VIX","HYG":"HYG","IEF":"IEF","LQD":"LQD"}
@@ -740,6 +796,7 @@ def get_bofa_heat():
                 "shock_vix":shock_vix,"shock_credit":shock_credit,"trend_on":bool(trend_on.dropna().iloc[-1])}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_blood_indicator():
     try:
         raw = yf.download(["^IRX","^TNX","HYG","IEF"], start="2015-01-01", auto_adjust=True, progress=False)
@@ -749,11 +806,13 @@ def get_blood_indicator():
         hyg_ticker = yf.Ticker("HYG")
         hyg_yield_raw = getattr(hyg_ticker.fast_info,"dividend_yield",None) or hyg_ticker.info.get("dividendYield",0.06)
         hyg_yield = hyg_yield_raw * 100 if hyg_yield_raw < 1 else hyg_yield_raw  # convert decimal to %
+        # hyg_yield는 현재 스칼라값이므로 blood 시계열 MA는 신뢰도 낮음 → 현재값+단기MA만 사용
         blood = (irx/(hyg_yield - t10y)).dropna()
-        cur=float(blood.iloc[-1]); ma20=float(blood.rolling(20).mean().iloc[-1]); ma60=float(blood.rolling(60).mean().iloc[-1])
-        return {"value":round(cur,4),"ma20":round(ma20,4),"ma60":round(ma60,4),"vs_ma20":"위" if cur>ma20 else "아래","vs_ma60":"위" if cur>ma60 else "아래"}
+        cur=float(blood.iloc[-1]); ma20=float(blood.rolling(20).mean().iloc[-1])
+        return {"value":round(cur,4),"ma20":round(ma20,4),"vs_ma20":"위" if cur>ma20 else "아래","vs_ma60":"위" if cur>ma20 else "아래"}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_us_fear_greed():
     try:
         tickers = ["^GSPC","^IXIC","^VIX","^TNX","^FVX","HYG","IEF","QQQ","SPY"]
@@ -806,6 +865,7 @@ def get_us_fear_greed():
                          "spy":data["SPY"].reindex(ch.index).tolist()}}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_monthly_fear_greed():
     try:
         start = (datetime.today()-timedelta(days=25*365)).strftime('%Y-%m-%d')
@@ -813,7 +873,7 @@ def get_monthly_fear_greed():
         data = raw["Close"].rename(columns={'^GSPC':'SP500','^IXIC':'NASDAQ','^VIX':'VIX','^TNX':'10Y','^FVX':'5Y'})
         data = data.resample('ME').ffill().dropna(); data['RA'] = data['HYG']/data['IEF']
         def calc(df, col, lbl):
-            df[f'{lbl}_MA125'] = df[col].rolling(125).mean()
+            df[f'{lbl}_MA125'] = df[col].rolling(60).mean()  # 월간: 60개월=5년 기준
             df[f'{lbl}_Mom'] = (df[col]-df[f'{lbl}_MA125'])/df[f'{lbl}_MA125']*100
             df[f'{lbl}_RSI'] = _rsi(df[col],10); df[f'{lbl}_BS'] = df['10Y']-df['5Y']
             df[f'{lbl}_VIX'] = df['VIX']; df[f'{lbl}_RA'] = df['RA']
@@ -834,6 +894,7 @@ def get_monthly_fear_greed():
                 "ndx_sentiment":"탐욕" if r['NDX_Osc'].iloc[-1]>0 else "공포"}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_coppock():
     try:
         results = {}
@@ -849,6 +910,7 @@ def get_coppock():
         return results
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_coppock_fast():
     try:
         results = {}
@@ -864,6 +926,7 @@ def get_coppock_fast():
         return results
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_zbt():
     try:
         universe = list(set(NASDAQ100 + SP500_TOP100[:80]))
@@ -884,6 +947,7 @@ def get_zbt():
                 "vix_ok":vix_val<20 if vix_val else None}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_sp500_rs(tickers, top_n=10):
     try:
         spy_px=_close("SPY",period="3y")
@@ -909,6 +973,7 @@ def get_sp500_rs(tickers, top_n=10):
         return {"top":[{"ticker":r["ticker"],"rs":round(r["rs"],1)} for _,r in df.iterrows()]}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_nasdaq100_rs(tickers, top_n=10):
     try:
         raw=yf.download(tickers+["SPY"],period="1y",auto_adjust=True,progress=False)
@@ -925,6 +990,7 @@ def get_nasdaq100_rs(tickers, top_n=10):
         return {"top":[{"ticker":t,"rs":round(rs_dict[t],2)} for t in top]}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_us_sector_rs():
     try:
         tks=list(US_SECTOR_ETFS.keys())
@@ -1083,6 +1149,7 @@ def get_kr_etf_rs():
         return {"all":results,"strong":strong[:10] if strong else results[:5]}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_buy_timing(ticker):
     try:
         t=ticker.strip().upper()
@@ -1107,6 +1174,7 @@ def get_buy_timing(ticker):
 # ─────────────────────────────────────────────────────────────────────────────
 # 한국 F&G 자동 계산 (Yahoo Finance만 사용)
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_kr_fg_auto():
     """
     Excel 없이 완전 자동 한국 피어앤그리드 오실레이터
@@ -1316,6 +1384,7 @@ KR_ETF_CODES = {
     "152100":"KODEX 선진국MSCI",     "195930":"TIGER 해외리츠부동산",
 }
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_kr_stock_rs(top_n=15):
     try:
         tks = list(KR_STOCKS.keys())
@@ -1661,12 +1730,15 @@ def get_composite_score(top_n=30):
             short5_raw[tk] = s5
             long40_raw[tk] = l40
 
-    # 최근 5일 수급 백분위 (높을수록 현재 강하게 들어오는 중)
+    # 수급 점수: 40일 누적이 낮을수록(빈집) 오를 여력이 크므로 역순 백분위로 높은 점수
+    # ETF가 아직 수량을 확보하지 않은 종목 = 이후 ETF 매수로 오를 가능성 높음
     supply_scores = {}
-    if any(v != 0 for v in short5_raw.values()):
+    if long40_raw and any(v != 0 for v in long40_raw.values()):
+        supply_scores = ((1 - pd.Series(long40_raw).rank(pct=True)) * 100).round(1).to_dict()
+    elif any(v != 0 for v in short5_raw.values()):
         supply_scores = (pd.Series(short5_raw).rank(pct=True) * 100).round(1).to_dict()
 
-    # 빈집 감지: long40이 하위 30% (많이 팔린 상태) + 최근 5일 양수 (전환 시작)
+    # 빈집 감지: long40 하위 35%(빈집) + 최근 5일 양수(전환 시작) = 최우선 기회
     binzip_set = set()
     if long40_raw:
         l40_pct = pd.Series(long40_raw).rank(pct=True)  # 낮을수록 빈집
@@ -1677,7 +1749,7 @@ def get_composite_score(top_n=30):
                 binzip_set.add(tk)
 
     # ── 7. 종합 점수 합산 ──
-    # RS 25% + 수급(5일) 30% + 모멘텀 20% + 거래대금 15% + 신고가 10%
+    # RS 25% + 수급(빈집여력) 30% + 모멘텀 20% + 거래대금 15% + 신고가 10%
     WEIGHTS = [("rs", 0.25), ("supply", 0.30), ("momentum", 0.20), ("volume", 0.15), ("high52", 0.10)]
     score_maps = {"rs": rs_scores, "supply": supply_scores,
                   "volume": vol_scores, "momentum": mom_scores, "high52": high52_scores}
@@ -1781,6 +1853,7 @@ def calc_weekly_trend_excel(df_wk):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_weekly_trend(ticker):
     try:
         t = ticker.strip().upper()
@@ -1832,6 +1905,7 @@ def get_weekly_trend(ticker):
                 "chart":chart}
     except Exception as e: return {"error":str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_trading_intensity(ticker):
     try:
         t = ticker.strip().upper(); tk = yf.Ticker(t)
@@ -2128,6 +2202,7 @@ def get_dart_profile(ticker, dart_key):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_stock_supply_osc(ticker, chart_days=60, agg_days=20):
     """단일 한국 종목 수급 오실레이터 — 네이버 파이낸스 기관+외국인 순매매"""
     from bs4 import BeautifulSoup
@@ -2296,6 +2371,7 @@ def get_kr_supply_auto(top_n=20, days=20):
         "note": f"외국인 순매수 억원 ({days}거래일 누적) | 기관 데이터 포함 | 출처: 네이버 파이낸스"
     }
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_krx_inst_market_flow(days=10):
     """KRX 시장 전체 기관/외국인 순매수 (최근 N거래일) — pykrx"""
     try:
@@ -2333,6 +2409,7 @@ def get_krx_inst_market_flow(days=10):
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_krx_volume_strength():
     """KOSPI 거래대금 강도 (RotationRate) 자동 계산 — pykrx"""
     try:
@@ -2368,6 +2445,7 @@ def get_krx_volume_strength():
     except Exception as e:
         return {"error": str(e)}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_stock_inst_osc(ticker, days=20):
     """개별 종목 기관/외국인 순매수 오실레이터 — pykrx"""
     try:
@@ -2583,8 +2661,141 @@ def _osc_bar_chart(dates, osc_vals, height=220):
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 1: 미국 지표
 # ─────────────────────────────────────────────────────────────────────────────
+with tab0:
+    # ── 자동 로딩 (버튼 없음 — @st.cache_data 1시간 캐시) ─────────────────────────
+    with st.spinner("📡 시장 분석 중... (첫 실행 1~2분, 이후 즉시 표시)"):
+        _d_canary = get_canary_signal()
+        _d_bofa   = get_bofa_heat()
+        _d_blood  = get_blood_indicator()
+        _d_fg     = get_us_fear_greed()
+        _d_cop    = get_coppock()
+        _d_fg_m   = get_monthly_fear_greed()
+        _d_kr_fg  = get_kr_fg_auto()
+        _d_market = get_market_summary()
+
+    # ── 전체 판단 ────────────────────────────────────────────────────────────────
+    _d_attack  = bool(_d_canary and "error" not in _d_canary and _d_canary.get("mode") == "공격")
+    _d_heat    = float(_d_bofa.get("heat", 5)) if _d_bofa and "error" not in _d_bofa else 5.0
+    _d_spy_cop = (_d_cop.get("SPY", {}) if _d_cop and "error" not in _d_cop else {}) or {}
+    _d_cop_up  = bool(_d_spy_cop.get("pos") and _d_spy_cop.get("trend") == "상승")
+
+    if _d_attack and _d_cop_up and _d_heat < 7.5:
+        _d_cls, _d_icon, _d_main, _d_sub = (
+            "dash-status-green", "🟢",
+            "매수 구간 — 지금 주식을 보유해도 됩니다",
+            f"카나리아 공격 · 코포크 상승 · 시장 열기 {_d_heat:.1f}/10",
+        )
+    elif not _d_attack:
+        _d_cls, _d_icon, _d_main, _d_sub = (
+            "dash-status-red", "🔴",
+            "방어 구간 — 현금·채권 비중 확대",
+            "카나리아 방어 모드 (QQQ 또는 TIP 모멘텀 음수)",
+        )
+    elif _d_heat >= 7.5:
+        _d_cls, _d_icon, _d_main, _d_sub = (
+            "dash-status-yellow", "🟡",
+            "과열 주의 — 신규 매수 자제",
+            f"시장 열기 {_d_heat:.1f}/10 (7.5↑ 과열)",
+        )
+    else:
+        _d_cls, _d_icon, _d_main, _d_sub = (
+            "dash-status-yellow", "🟡",
+            "중립 — 신중하게 대응",
+            "신호 혼재 · 기존 포지션 유지 권장",
+        )
+
+    st.markdown(
+        f'<div class="{_d_cls}">'
+        f'<div style="font-size:1.6rem;font-weight:800;color:#e6edf3;letter-spacing:-0.02em;">{_d_icon}&nbsp;{_d_main}</div>'
+        f'<div style="font-size:0.82rem;color:#8b949e;margin-top:6px;">{_d_sub}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── 미국 핵심 신호 5개 ─────────────────────────────────────────────────────────
+    st.markdown('<p class="zone-header">🌎 미국 시장</p>', unsafe_allow_html=True)
+
+    def _dc(col, icon, value, label, color="#e6edf3"):
+        col.markdown(
+            f'<div class="dash-metric">'
+            f'<div style="font-size:1.3rem;line-height:1.1;">{icon}</div>'
+            f'<div style="color:{color};font-weight:700;font-size:0.88rem;margin:4px 0 2px;">{value}</div>'
+            f'<div style="color:#7d8590;font-size:0.72rem;">{label}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    _d_col1, _d_col2, _d_col3, _d_col4, _d_col5 = st.columns(5, gap="small")
+
+    if _d_canary and "error" not in _d_canary:
+        _ci = "🟢" if _d_canary["mode"] == "공격" else "🔴"
+        _cc = "#3fb950" if _d_canary["mode"] == "공격" else "#f85149"
+        _dc(_d_col1, _ci, _d_canary["mode"], "카나리아", _cc)
+
+    if _d_bofa and "error" not in _d_bofa:
+        _bi = "🔴" if _d_heat >= 7.5 else ("🟡" if _d_heat >= 5 else "🟢")
+        _bc = "#f85149" if _d_heat >= 7.5 else ("#d29922" if _d_heat >= 5 else "#3fb950")
+        _dc(_d_col2, _bi, f"{_d_heat:.1f}/10", "BofA 열기", _bc)
+
+    if _d_blood and "error" not in _d_blood:
+        _bli = "🟢" if _d_blood["vs_ma20"] == "위" else "🔴"
+        _blc = "#3fb950" if _d_blood["vs_ma20"] == "위" else "#f85149"
+        _dc(_d_col3, _bli, f"MA20 {_d_blood['vs_ma20']}", "채권 스트레스", _blc)
+
+    if _d_fg and "error" not in _d_fg:
+        _fi = "🟢" if _d_fg["spx_osc"] > 0 else "🔴"
+        _fc = "#3fb950" if _d_fg["spx_osc"] > 0 else "#f85149"
+        _dc(_d_col4, _fi, _d_fg["spx_sentiment"], "공포탐욕(일)", _fc)
+
+    if _d_spy_cop:
+        _copi = "🟢" if _d_spy_cop.get("pos") and _d_spy_cop.get("trend") == "상승" else (
+                "🔴" if not _d_spy_cop.get("pos") else "🟡")
+        _copc = "#3fb950" if _copi == "🟢" else ("#f85149" if _copi == "🔴" else "#d29922")
+        _dc(_d_col5, _copi, f"{_d_spy_cop.get('value', 0):+.1f}", "코포크(SPY)", _copc)
+
+    # ── 국내 시장 ──────────────────────────────────────────────────────────────────
+    st.markdown('<p class="zone-header">🇰🇷 국내 시장</p>', unsafe_allow_html=True)
+    _dk_cols = st.columns(4)
+
+    if _d_market and "error" not in _d_market:
+        _ks = _d_market.get("kospi", {}) or {}
+        if "close" in _ks:
+            _ksi = "🟢" if _ks["chg_pct"] >= 0 else "🔴"
+            _dc(_dk_cols[0], _ksi,
+                f"{float(_ks['close']):,.0f}  ({_ks['chg_pct']:+.2f}%)", "KOSPI",
+                "#3fb950" if _ks["chg_pct"] >= 0 else "#f85149")
+        _kq = _d_market.get("kosdaq", {}) or {}
+        if "close" in _kq:
+            _kqi = "🟢" if _kq["chg_pct"] >= 0 else "🔴"
+            _dc(_dk_cols[1], _kqi,
+                f"{float(_kq['close']):,.0f}  ({_kq['chg_pct']:+.2f}%)", "KOSDAQ",
+                "#3fb950" if _kq["chg_pct"] >= 0 else "#f85149")
+
+    if _d_kr_fg and "error" not in _d_kr_fg:
+        _kr_ks = (_d_kr_fg.get("results") or {}).get("KOSPI", {})
+        if "osc" in _kr_ks:
+            _kfi = "🟢" if _kr_ks["osc"] > 0 else "🔴"
+            _dc(_dk_cols[2], _kfi,
+                f"{_kr_ks['osc']:+.3f}  {_kr_ks.get('sentiment', '')}", "KR FGI",
+                "#3fb950" if _kr_ks["osc"] > 0 else "#f85149")
+
+    if _d_fg_m and "error" not in _d_fg_m:
+        _mfi = "🟢" if _d_fg_m["spx_osc"] > 0 else "🔴"
+        _dc(_dk_cols[3], _mfi,
+            f"{_d_fg_m['spx_osc']:+.3f}  {_d_fg_m.get('spx_sentiment', '')}", "월간심리(US)",
+            "#3fb950" if _d_fg_m["spx_osc"] > 0 else "#f85149")
+
+    # ── 하단 새로고침 ────────────────────────────────────────────────────────────────
+    st.markdown("---")
+    import datetime as _dtd0
+    _kstd0 = _dtd0.datetime.utcnow() + _dtd0.timedelta(hours=9)
+    _dc0_1, _dc0_2 = st.columns([4, 1])
+    _dc0_1.caption(f"갱신: {_kstd0.strftime('%Y-%m-%d %H:%M')} KST · 1시간 캐시 · 상세 분석은 각 탭 클릭")
+    if _dc0_2.button("🔄 새로고침", key="dash_refresh"):
+        st.cache_data.clear()
+        st.rerun()
+
 with tab1:
-    st.info("**지금 미국 주식을 사도 되는 타이밍인지 확인합니다.** 미국 장 마감 후(한국 오전 6~7시)에 버튼을 누르세요.")
     with st.expander("❓ 어려운 용어 설명"):
         st.markdown("**🐤 카나리아** — 시장 진입 신호. 나스닥·물가채 모멘텀이 모두 양수면 공격(주식), 하나라도 음수면 방어(현금·채권)")
         st.markdown("**🌡️ BOFA 열기** — 시장 과열도 0~10점. 7.5↑ 과열 / 2.5↓ 안전")
@@ -2597,19 +2808,22 @@ with tab1:
         st.markdown("**📈 코포크** — 중장기 추세. 양수(+)이고 상승 중이면 매수 유리")
         st.markdown("**💪 상대강도(RS)** — 다른 종목보다 얼마나 더 올랐는지. 높을수록 강세")
 
-    if st.button("▶ 미국 시장 분석 시작", type="primary", use_container_width=True, key="us_run"):
-        prog = st.progress(0, text="카나리아 분석 중...")
-        canary=get_canary_signal(); prog.progress(10, text="BOFA Heat 분석 중...")
-        bofa=get_bofa_heat(); prog.progress(20, text="블러드 인디케이터...")
-        blood=get_blood_indicator(); prog.progress(30, text="피어앤그리드 (일간)...")
-        fg=get_us_fear_greed(); prog.progress(42, text="피어앤그리드 (월간)...")
-        fg_m=get_monthly_fear_greed(); prog.progress(52, text="코포크 지표...")
-        coppock=get_coppock(); coppock_fast=get_coppock_fast(); prog.progress(62, text="ZBT 시장 폭...")
-        zbt=get_zbt(); prog.progress(72, text="S&P500 RS 상위...")
-        sp500_rs=get_sp500_rs(SP500_TOP100); prog.progress(84, text="나스닥100 RS...")
-        ndx_rs=get_nasdaq100_rs(NASDAQ100); prog.progress(93, text="미국 섹터 ETF RS...")
-        us_sector=get_us_sector_rs(); prog.progress(100, text="완료!")
-        prog.empty()
+    _t1h, _t1b = st.columns([6, 1])
+    _t1h.caption("📡 자동 분석 · 1시간 캐시 유지")
+    if _t1b.button("🔄", key="us_refresh", help="캐시 초기화 후 재분석"):
+        st.cache_data.clear(); st.rerun()
+    with st.spinner("데이터 불러오는 중... (첫 실행 약 1~2분, 이후 즉시)"):
+        canary=get_canary_signal()
+        bofa=get_bofa_heat()
+        blood=get_blood_indicator()
+        fg=get_us_fear_greed()
+        fg_m=get_monthly_fear_greed()
+        coppock=get_coppock(); coppock_fast=get_coppock_fast()
+        zbt=get_zbt()
+        sp500_rs=get_sp500_rs(SP500_TOP100)
+        ndx_rs=get_nasdaq100_rs(NASDAQ100)
+        us_sector=get_us_sector_rs()
+    if True:
 
         # ── 1. 종합 신호 ──
         st.markdown('<p class="zone-header">📊 지금 시장은?</p>', unsafe_allow_html=True)
@@ -2732,7 +2946,6 @@ with tab1:
 # 탭 2: 국내 지표
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
-    st.info("**오늘 한국 시장을 한눈에 파악합니다.** 장 마감 후(오후 4시 이후)에 분석 버튼을 누르세요. 강한 업종·수급·ETF 순위를 보여드립니다.")
     # ── KST 시간 + 자동 업데이트 ──
     import datetime as _dt
     _kst = _dt.datetime.utcnow() + _dt.timedelta(hours=9)
@@ -2761,8 +2974,6 @@ with tab2:
     # 4시 이후 오늘 첫 방문 시 자동 실행
     _today_str = _kst.strftime("%Y-%m-%d")
     _auto_ran_key = f"kr_auto_ran_{_today_str}"
-    if _is_after_close and _is_weekday and not st.session_state.get(_auto_ran_key):
-        st.info("장 마감 후입니다. **▶ 국내 시장 분석 시작** 버튼을 누르거나, 자동 토글을 켜두면 다음 새로고침 시 자동 실행됩니다.")
 
     with st.expander("❓ 어려운 용어 설명"):
         st.markdown("**💹 수급 오실레이터** — 외국인·기관 매수/매도 강도. 양수=사는 힘 강함 / 음수=파는 힘 강함")
@@ -2775,18 +2986,17 @@ with tab2:
 
     st.markdown('<p class="zone-header">📡 오늘 시장 현황</p>', unsafe_allow_html=True)
 
-    # 자동 새로고침으로 재진입하거나 버튼 클릭 시 실행
-    _should_run = st.button("▶ 국내 시장 분석 시작", type="primary", use_container_width=True, key="kr_run")
-    if _should_run or (_auto_refresh_on and _is_after_close and _is_weekday):
-        st.session_state[_auto_ran_key] = True
-        prog=st.progress(0, text="📊 코스피/코스닥 수집 중...")
-        market=get_market_summary(); prog.progress(20, text="🏭 업종 ETF 수집 중...")
-        sector=get_sector_performance(); prog.progress(40, text="💹 수급 오실레이터 계산 중...")
-        supply=get_supply_oscillator(); prog.progress(60, text="🇰🇷 한국 ETF RS 계산 중...")
-        kr_etf=get_kr_etf_rs(); prog.progress(80, text="🏠 빈집 스크리닝 중...")
-        binzip=get_binzip_stocks(supply_data=supply); prog.progress(100, text="✅ 완료!")
-        prog.empty()
-        st.caption(f"🕐 마지막 업데이트: {_kst.strftime('%Y-%m-%d %H:%M')} KST")
+    _t2h, _t2b = st.columns([6, 1])
+    _t2h.caption(f"📡 자동 분석 · {_kst.strftime('%H:%M')} KST 기준")
+    if _t2b.button("🔄", key="kr_refresh", help="캐시 초기화"):
+        st.cache_data.clear(); st.rerun()
+    with st.spinner("국내 시장 데이터 불러오는 중..."):
+        market=get_market_summary()
+        sector=get_sector_performance()
+        supply=get_supply_oscillator()
+        kr_etf=get_kr_etf_rs()
+        binzip=get_binzip_stocks(supply_data=supply)
+    if True:
 
         # ── 지수 현황 ──
         st.markdown('<p class="zone-header">📊 코스피·코스닥 현황</p>', unsafe_allow_html=True)
