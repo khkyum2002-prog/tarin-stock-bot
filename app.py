@@ -1773,13 +1773,14 @@ def get_composite_score(top_n=30):
         # short5도 낮을수록(빈집) 좋으므로 역순 백분위 적용
         supply_scores = ((1 - pd.Series(short5_raw).rank(pct=True)) * 100).round(1).to_dict()
 
-    # 빈집 감지: long40 하위 35%(빈집) + 최근 5일 양수(전환 시작) = 최우선 기회
+    # 빈집 감지: 40일 누적 순매수가 0 이하(절대 기준) + 최근 5일 양수(전환 시작)
+    # ※ 상대 백분위(하위 35%) 방식은 섹터 전체가 순매수 구간일 때 양수 종목을 빈집으로
+    #   오분류하므로 절대값 기준 사용
     binzip_set = set()
     if long40_raw:
-        l40_pct = pd.Series(long40_raw).rank(pct=True)  # 낮을수록 빈집
         for tk in tks:
-            is_empty  = l40_pct.get(tk, 1.0) <= 0.35    # 하위 35% = 빈집
-            is_inflow = short5_raw.get(tk, 0) > 0        # 최근 5일 순매수 양수 = 전환
+            is_empty  = long40_raw.get(tk, 1) <= 0   # 40일 누적 순매수 ≤ 0 = 진짜 빈집
+            is_inflow = short5_raw.get(tk, 0) > 0    # 최근 5일 순매수 양수 = 전환 시작
             if is_empty and is_inflow:
                 binzip_set.add(tk)
 
@@ -4378,8 +4379,8 @@ with tab4:
                 _df_comp = pd.DataFrame(_filtered_rows)
                 _df_disp = _df_comp.rename(columns={
                     "grade":"등급","sector":"섹터","name":"종목명","score":"종합",
-                    "rs":"RS","supply":"수급","momentum":"모멘텀","volume":"거래대금","high52":"신고가"
-                })[["등급","섹터","종목명","종합","RS","수급","모멘텀","거래대금","신고가"]]
+                    "rs":"RS","supply":"빈집여력","momentum":"모멘텀","volume":"거래대금","high52":"신고가"
+                })[["등급","섹터","종목명","종합","RS","빈집여력","모멘텀","거래대금","신고가"]]
 
                 st.dataframe(
                     _df_disp, use_container_width=True, hide_index=True,
@@ -4419,7 +4420,7 @@ with tab4:
                     st.plotly_chart(_fig4, use_container_width=True, config={"scrollZoom": False})
 
     st.divider()
-    st.caption("⭐ 강력: RS≥65 + 수급≥65  ·  ✅ 유망: RS≥55 + 수급≥55  ·  점수는 강한 섹터 내 백분위")
+    st.caption("⭐ 강력: RS≥65 + 빈집여력≥65  ·  ✅ 유망: RS≥55 + 빈집여력≥55  ·  빈집여력: 높을수록 아직 매집이 덜 된 종목 (좋은 신호)  ·  점수는 강한 섹터 내 백분위")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 5: 수출 데이터
