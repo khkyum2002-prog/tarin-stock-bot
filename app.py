@@ -2711,6 +2711,13 @@ def get_kr_consensus_auto(top_n=20):
     }
 
 def calc_consensus_excel(df_db):
+    """컨센 Excel db 시트 분석 — 빈집여부 기준 3가지로 분류
+
+    빈집 개념: 외국인+기관 합산 순매수가 낮을수록(음수) = 아직 덜 샀음 = 매수 기회
+    - 빈집 + EPS가속: 실적 개선 중인데 아직 안 샀음 → 최우선 기회
+    - 빈집 전환: 장기 비어있다가 최근 매집 시작 → 전환 신호
+    - 수급 유입 중: 이미 사고 있음 → 모멘텀 참고용
+    """
     try:
         cols = list(df_db.columns)
         COL_NAME="종목명"; COL_MKT="유동시가총액"
@@ -2723,21 +2730,31 @@ def calc_consensus_excel(df_db):
         for col in [COL_EPS_1M,COL_EPS_3M,COL_MKT,COL_F_6M,COL_F_1M,COL_I_6M,COL_I_1M]:
             if col and col in df_db.columns: df_db[col]=pd.to_numeric(df_db[col],errors='coerce')
         if not COL_EPS_1M or not COL_EPS_3M: return {"error":"EPS 컬럼을 찾을 수 없음"}
+        # EPS 가속 필터: 1개월 변화 > 3개월 변화 = 최근 들어 더 많이 상향됨
         mask=(df_db[COL_EPS_1M].notna()&df_db[COL_EPS_3M].notna()&
               (df_db[COL_EPS_1M]>0)&(df_db[COL_EPS_3M]>0)&(df_db[COL_EPS_1M]>df_db[COL_EPS_3M]))
         base=df_db[mask].copy()
-        f_top20=[]; i_top20=[]; common=[]
-        if COL_F_6M and COL_F_1M and COL_I_6M and COL_I_1M and COL_MKT in df_db.columns:
-            base["외국인_6M"]=base[COL_F_6M]/base[COL_MKT]; base["외국인_1M"]=base[COL_F_1M]/base[COL_MKT]
-            base["기관_6M"]=base[COL_I_6M]/base[COL_MKT]; base["기관_1M"]=base[COL_I_1M]/base[COL_MKT]
-            fp=base[(base["외국인_6M"]>0)&(base["외국인_1M"]>0)]
-            ip=base[(base["기관_6M"]>0)&(base["기관_1M"]>0)]
-            f_top20=fp.sort_values("외국인_1M",ascending=False).head(20)[COL_NAME].tolist()
-            i_top20=ip.sort_values("기관_1M",ascending=False).head(20)[COL_NAME].tolist()
-            common=sorted(set(f_top20)&set(i_top20))
-        else:
-            f_top20=base.head(20)[COL_NAME].tolist()
-        return {"eps_passed":len(base),"foreign_top20":f_top20,"inst_top20":i_top20,"common":common}
+        binzip_list=[]; turn_list=[]; inflow_list=[]
+        if COL_F_1M and COL_I_1M:
+            base=base[base[COL_MKT].notna()&(base[COL_MKT]>0)].copy()
+            base["합산_1M"]=base[COL_F_1M].fillna(0)+base[COL_I_1M].fillna(0)   # 단기 외국인+기관
+            base["합산_6M"]=(base[COL_F_6M].fillna(0)+base[COL_I_6M].fillna(0)) if COL_F_6M and COL_I_6M else base["합산_1M"]
+            # 빈집 + EPS가속: 단기 합산 ≤ 0 (수급 비어있음 = 아직 안 삼)
+            bz=base[base["합산_1M"]<=0].sort_values("합산_1M")   # 가장 빈집부터
+            binzip_list=bz[COL_NAME].tolist()
+            # 빈집 전환: 장기 비어있다가 단기 수급 유입 시작
+            tr=base[(base["합산_6M"]<=0)&(base["합산_1M"]>0)].sort_values("합산_1M",ascending=False)
+            turn_list=tr[COL_NAME].tolist()
+            # 수급 유입 중: 단기 합산 > 0 (이미 사는 중 — 모멘텀 참고)
+            inf=base[base["합산_1M"]>0].sort_values("합산_1M",ascending=False).head(20)
+            inflow_list=inf[COL_NAME].tolist()
+        return {
+            "eps_passed": len(base),
+            "binzip_list": binzip_list,      # 🏚️ 빈집 + EPS가속 (핵심)
+            "turn_list": turn_list,           # 🔄 빈집 전환 (장기빈집→단기 수급유입)
+            "inflow_list": inflow_list,       # 📈 수급 유입 중 (모멘텀 참고)
+            "has_supply": bool(COL_F_1M and COL_I_1M),
+        }
     except Exception as e: return {"error":str(e)}
 
 # ── 공통 차트 헬퍼 ──
@@ -3639,7 +3656,7 @@ with tab2:
     # ── 컨센 가속 & 수급 (Excel 정밀 분석) ──
     st.markdown('<p class="zone-header">📋 Excel 정밀 분석</p>', unsafe_allow_html=True)
     _cons_src = "📂 로컬 파일 감지됨" if "c_consensus_bytes" in st.session_state else "❌ 파일 없음"
-    st.caption(f"📂 데이터 정리.xlsx (db 시트) — EPS가속(1M>3M) + 외국인/기관 교집합 | 소스: {_cons_src}")
+    st.caption(f"📂 데이터 정리.xlsx (db 시트) — EPS가속(1M>3M) + 빈집여부(외국인+기관 합산 순매수) | 소스: {_cons_src}")
     with st.expander("📂 파일 직접 업로드 (선택)", expanded=False):
         consensus_file = st.file_uploader("데이터 정리.xlsx", type=["xlsx"], key="consensus_file")
     if consensus_file:
@@ -3657,19 +3674,25 @@ with tab2:
             st.error(f"파일 읽기 오류: {e}")
     if "c_consensus" in st.session_state:
         cons = st.session_state["c_consensus"]
+        st.caption("📌 빈집 개념: 외국인+기관 합산 순매수 **낮을수록(음수)** = 아직 덜 샀음 = 매수 기회 ↑")
         st.metric("EPS 가속 통과 종목", f"{cons['eps_passed']}개")
-        c1,c2 = st.columns(2)
-        with c1:
-            st.markdown("**외국인 수급강도 TOP20**")
-            for i,n in enumerate(cons["foreign_top20"],1): st.markdown(f"`{i:2d}` {n}")
-        with c2:
-            st.markdown("**기관 수급강도 TOP20**")
-            for i,n in enumerate(cons["inst_top20"],1): st.markdown(f"`{i:2d}` {n}")
-        if cons["common"]:
-            st.markdown("**🎯 외국인 & 기관 공통 (교집합)**")
-            st.success(" · ".join(cons["common"]))
+        # 빈집 전환 (최우선 — 장기 빈집인데 최근 매집 시작)
+        turn = cons.get("turn_list", [])
+        if turn:
+            st.markdown("**🔄 빈집 전환 종목** — 장기 비어있다가 최근 매집 시작 (최우선)")
+            st.success(" · ".join(turn[:15]) + (f" 외 {len(turn)-15}개" if len(turn)>15 else ""))
         else:
-            st.info("교집합 없음")
+            st.info("빈집 전환 종목 없음")
+        c1, c2 = st.columns(2)
+        with c1:
+            bz = cons.get("binzip_list", [])
+            st.markdown(f"**🏚️ 빈집 + EPS가속** ({len(bz)}개) — 수급 빈 채로 실적 개선 중")
+            for i, n in enumerate(bz[:20], 1): st.markdown(f"`{i:2d}` {n}")
+            if len(bz) > 20: st.caption(f"... 외 {len(bz)-20}개")
+        with c2:
+            inf = cons.get("inflow_list", [])
+            st.markdown(f"**📈 수급 유입 중** (TOP{len(inf)}) — 이미 사는 중 (모멘텀 참고)")
+            for i, n in enumerate(inf, 1): st.markdown(f"`{i:2d}` {n}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 탭 3: 종목 분석
