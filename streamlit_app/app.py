@@ -1187,7 +1187,7 @@ def get_kr_etf_rs():
 def get_buy_timing(ticker):
     try:
         t=ticker.strip().upper()
-        raw=yf.download(t,period="1y",auto_adjust=False,progress=False)
+        raw=yf.download(t,period="1y",auto_adjust=True,progress=False)
         if raw.empty: return {"error":f"{t} 데이터 없음"}
         df=raw.copy()
         if isinstance(df.columns,pd.MultiIndex): df.columns=df.columns.droplevel(1)
@@ -1882,7 +1882,9 @@ def calc_weekly_trend_excel(df_wk):
         chart = {"dates": dates, "close": ch['Close'].tolist(), "ma10": ch['MA10'].tolist(),
                  "cmf": ch['CMF'].tolist(), "high": ch['High'].tolist(), "low": ch['Low'].tolist()}
         return {"price": round(cur_close, 2), "ma10": round(cur_ma10, 2) if cur_ma10 else None,
-                "cmf": round(cur_cmf, 4), "buy_signal": bool(buy.iloc[-1]), "sell_signal": bool(sell.iloc[-1]),
+                "cmf": round(cur_cmf, 4),
+                "buy_signal": bool(buy.iloc[-1]) if pd.notna(buy.iloc[-1]) else False,
+                "sell_signal": bool(sell.iloc[-1]) if pd.notna(sell.iloc[-1]) else False,
                 "recent_buy_4w": int(buy.tail(4).sum()), "impulse_weekly": impulse_w,
                 "w_td_sell": w_ts, "w_td_buy": w_tb,
                 "date_range": f"{dates[0]} ~ {dates[-1]}", "rows": len(df), "chart": chart}
@@ -2527,7 +2529,7 @@ def get_stock_price_chart(ticker: str, days: int = 180):
     import math
     try:
         t = ticker.strip().upper()
-        raw = yf.download(t, period="2y", auto_adjust=True, progress=False)
+        raw = yf.download(t, period="3y", auto_adjust=True, progress=False)
         if raw.empty:
             return {"error": f"{t} 데이터 없음"}
         df = raw.copy()
@@ -2745,8 +2747,8 @@ def calc_consensus_excel(df_db):
             # 빈집 전환: 장기 비어있다가 단기 수급 유입 시작
             tr=base[(base["합산_6M"]<=0)&(base["합산_1M"]>0)].sort_values("합산_1M",ascending=False)
             turn_list=tr[COL_NAME].tolist()
-            # 수급 유입 중: 단기 합산 > 0 (이미 사는 중 — 모멘텀 참고)
-            inf=base[base["합산_1M"]>0].sort_values("합산_1M",ascending=False).head(20)
+            # 수급 유입 중: 단기 합산 > 0 (이미 사는 중 — 빈집전환 종목 제외)
+            inf=base[(base["합산_1M"]>0)&(~base[COL_NAME].isin(turn_list))].sort_values("합산_1M",ascending=False).head(20)
             inflow_list=inf[COL_NAME].tolist()
         return {
             "eps_passed": len(base),
@@ -3764,6 +3766,7 @@ with tab3:
     # 분석 결과를 session_state에 저장 — 버튼 클릭 후 리렌더링 시에도 차트 유지
     if "tab3_tickers" not in st.session_state:
         st.session_state["tab3_tickers"] = []
+    if "tab3_rt_quotes" not in st.session_state:
         st.session_state["tab3_rt_quotes"] = {}
 
     if st.button("🔍 분석 시작", key="bt_run", type="primary", use_container_width=True):
@@ -3791,7 +3794,8 @@ with tab3:
         else:
             _kr_t = [t for t in _new_tickers if t.endswith(".KS") or t.endswith(".KQ")]
             st.session_state["tab3_tickers"] = _new_tickers
-            st.session_state["tab3_rt_quotes"] = get_naver_realtime_quote(_kr_t) if _kr_t else {}
+            _rt_raw = get_naver_realtime_quote(_kr_t) if _kr_t else {}
+            st.session_state["tab3_rt_quotes"] = _rt_raw if "error" not in _rt_raw else {}
 
     if st.session_state.get("tab3_tickers"):
         tickers_to_run = st.session_state["tab3_tickers"]
@@ -4373,6 +4377,8 @@ with tab4:
             # ── 섹터 필터 (클릭 가능) ──
             _all_secs = ["반도체","방산","조선","2차전지","바이오","K뷰티","로봇","자동차","원전","게임/엔터","금융"]
             st.caption(f"강한 섹터(초록)가 기본 선택됩니다 · 대상 {_comp.get('total',0)}종목 · 수급 {'✅' if _has_sup else '❌'}")
+            if not _has_sup:
+                st.warning("⚠️ 수급 컬럼(외국인/기관 순매수 20일)을 찾지 못했습니다. EPS 가속 필터만 적용됩니다. 컬럼명에 '20', '외국', '기관' 키워드가 포함되어 있는지 확인하세요.")
             _sel_secs = st.pills(
                 "섹터 필터",
                 _all_secs,
@@ -4410,7 +4416,7 @@ with tab4:
                     column_config={
                         "종합":    st.column_config.ProgressColumn("종합점수",  min_value=0, max_value=100, format="%.1f"),
                         "RS":      st.column_config.ProgressColumn("RS",        min_value=0, max_value=100, format="%.0f"),
-                        "수급":    st.column_config.ProgressColumn("수급",      min_value=0, max_value=100, format="%.0f"),
+                        "빈집여력":st.column_config.ProgressColumn("빈집여력",  min_value=0, max_value=100, format="%.0f"),
                         "모멘텀":  st.column_config.ProgressColumn("모멘텀",    min_value=0, max_value=100, format="%.0f"),
                         "거래대금":st.column_config.ProgressColumn("거래대금",  min_value=0, max_value=100, format="%.0f"),
                         "신고가":  st.column_config.ProgressColumn("52주신고가",min_value=0, max_value=100, format="%.0f"),
