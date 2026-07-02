@@ -306,6 +306,11 @@ def main():
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"\n[{now}] ====== 시장 리포트 생성 시작 ======")
 
+    # 시작 핑 — 이게 안 오면 GitHub Actions 자체 문제
+    if not send_telegram(f"🔔 <b>리포트 시작</b>  {now}"):
+        print("[FATAL] 텔레그램 연결 실패 — 토큰/Chat ID 확인 필요")
+        sys.exit(1)
+
     header = (f"📋 <b>태린이아빠 시장 리포트</b>\n🕐 {now} (KST)\n{'─'*26}\n"
               f"① 매크로  ② 공포탐욕  ③ BLOOD\n④ 카나리아  ⑤ Heat  ⑥ 섹터\n"
               f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  🇰🇷 KR종목선정")
@@ -324,13 +329,19 @@ def main():
         except Exception as e:
             msg = f"⚠️ {fn.__name__} 오류: {e}"
             failed.append(fn.__name__)
+        # 전송 실패 시 30초 후 1회 재시도
         if not send_telegram(msg):
-            failed.append(f"{fn.__name__}(전송실패)")
+            time.sleep(30)
+            if not send_telegram(msg):
+                failed.append(f"{fn.__name__}(전송실패)")
         time.sleep(0.5)
 
     finish = datetime.now().strftime('%H:%M:%S')
     send_telegram(f"{'⚠️' if failed else '✅'} <b>리포트 완료</b>  {finish}" + (f"\n실패: {', '.join(failed)}" if failed else ""))
     print(f"[{finish}] 완료 / 실패: {failed or '없음'}")
+    # 실패 섹션이 절반 이상이면 비정상 종료 → GitHub Actions 실패로 기록
+    if len(failed) > len(sections) // 2:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -343,3 +354,4 @@ if __name__ == "__main__":
             send_telegram(f"🚨 <b>리포트 오류</b>\n{str(e)[:300]}")
         except Exception:
             pass
+        sys.exit(1)
