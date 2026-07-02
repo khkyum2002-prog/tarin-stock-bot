@@ -80,9 +80,31 @@ KR_STOCKS = {
 }
 
 
+def _retry(fn, attempts=3, delay=15):
+    for i in range(attempts):
+        try:
+            result = fn()
+            if result is not None:
+                return result
+        except Exception as e:
+            print(f"  [KR] 재시도 {i+1}/{attempts}: {e}")
+            if i < attempts - 1:
+                time.sleep(delay)
+    return None
+
+
+def _yf_download(tickers, **kwargs):
+    def _dl():
+        df = yf.download(tickers, progress=False, **kwargs)
+        if df.empty:
+            raise ValueError("빈 데이터")
+        return df
+    return _retry(_dl, attempts=3, delay=15)
+
+
 def _parse_supply_int(s: str) -> int:
-    s = s.replace(",", "").replace("+", "").strip()
-    if not s or s == "-" or s == "－":
+    s = str(s).replace(",", "").replace("+", "").replace("－", "-").strip()
+    if not s or s in ("-", "", "nan"):
         return 0
     try:
         return int(float(s))
@@ -95,35 +117,51 @@ def _naver_supply_single(code: str, days: int = 40) -> list:
     for pg in range(1, 5):
         if len(daily) >= days:
             break
-        try:
-            url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
-            r = requests.get(url, headers=HDRS, timeout=12)
-            soup = BS(r.content, "html.parser", from_encoding="euc-kr")
-            tables = soup.find_all("table")
-            if len(tables) < 4:
-                break
-            for row in tables[3].find_all("tr"):
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                    try:
-                        cp = int(cells[1].replace(",", ""))
-                        iq = _parse_supply_int(cells[5])
-                        fq = _parse_supply_int(cells[6])
-                        if cp > 0:
-                            daily.append((iq + fq) * cp / 1e8)
-                            if len(daily) >= days:
-                                break
-                    except Exception:
-                        pass
-        except Exception:
-            break
-        time.sleep(0.1)
+        for attempt in range(2):  # 페이지당 최대 2회 재시도
+            try:
+                url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
+                r = requests.get(url, headers=HDRS, timeout=15)
+                if not r.ok:
+                    break
+                soup = BS(r.content, "html.parser", from_encoding="euc-kr")
+                tables = soup.find_all("table")
+                if len(tables) < 4:
+                    break
+                target_table = tables[3]
+                for row in target_table.find_all("tr"):
+                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                    # 날짜 포함 행: 최소 7컬럼 + 날짜에 "." 포함
+                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
+                        try:
+                            price_str = cells[1].replace(",", "").strip()
+                            if not price_str or not price_str.replace("-","").isdigit():
+                                continue
+                            cp = int(price_str)
+                            # 기관(5) + 외국인(6) 합산 순매수
+                            iq = _parse_supply_int(cells[5])
+                            fq = _parse_supply_int(cells[6])
+                            if cp > 0:
+                                daily.append((iq + fq) * cp / 1e8)
+                                if len(daily) >= days:
+                                    break
+                        except Exception:
+                            continue
+                break  # 성공 시 재시도 루프 탈출
+            except requests.RequestException:
+                if attempt == 0:
+                    time.sleep(3)
+                else:
+                    break
+        time.sleep(0.15)
     return daily
 
 
 def _fetch_supply_worker(ticker: str) -> tuple:
     code = ticker.replace(".KS", "").replace(".KQ", "")
-    daily = _naver_supply_single(code, days=40)
+    try:
+        daily = _naver_supply_single(code, days=40)
+    except Exception:
+        daily = []
     if not daily:
         return ticker, 0.0, 0.0, True
     return ticker, sum(daily[:min(5, len(daily))]), sum(daily[:min(40, len(daily))]), False
@@ -131,13 +169,22 @@ def _fetch_supply_worker(ticker: str) -> tuple:
 
 def check_kr_screening() -> str:
     print("  [KR] 국내 종목 빈집여력 스크리닝 중...")
+    try:
+        return _run_kr_screening()
+    except Exception as e:
+        return f"🇰🇷 KR 종목 선정: 오류 ({e})"
+
+
+def _run_kr_screening() -> str:
     rows = []
     tickers = list(KR_STOCKS.keys())
 
-    try:
-        bench_raw = yf.download(tickers + ["^KS11"], period="6mo", auto_adjust=True, progress=False)
-        close_all = bench_raw["Close"].dropna(how="all") if isinstance(bench_raw.columns, pd.MultiIndex) else bench_raw.dropna(how="all")
-    except Exception:
+    bench_raw = _yf_download(tickers + ["^KS11"], period="6mo", auto_adjust=True)
+    if bench_raw is not None:
+        close_all = (bench_raw["Close"].dropna(how="all")
+                     if isinstance(bench_raw.columns, pd.MultiIndex)
+                     else bench_raw.dropna(how="all"))
+    else:
         close_all = pd.DataFrame()
 
     bench_ret = None
@@ -202,10 +249,11 @@ def check_kr_screening() -> str:
             grade = None
 
         if grade:
-            rows.append({"ticker": t, "name": KR_STOCKS[t], "rs": rs, "bz": bz, "score": score, "grade": grade, "binzip": is_bz})
+            rows.append({"ticker": t, "name": KR_STOCKS[t], "rs": rs, "bz": bz,
+                         "score": score, "grade": grade, "binzip": is_bz})
 
     if not rows:
-        return f"🇰🇷 <b>KR 종목 선정</b>\n  해당 종목 없음"
+        return "🇰🇷 <b>KR 종목 선정</b>\n  해당 종목 없음 (수급 데이터 조회 중)"
 
     rows.sort(key=lambda x: (not x["binzip"], -x["score"]))
 
@@ -213,8 +261,12 @@ def check_kr_screening() -> str:
     for r in rows[:12]:
         l40_val = long40_map.get(r["ticker"], 0)
         s5_val = short5_map.get(r["ticker"], 0)
-        lines.append(f"  {r['grade']} {r['name']}\n    RS {r['rs']:.0f}  빈집여력 {r['bz']:.0f}  (40일:{l40_val:+.0f}억/5일:{s5_val:+.0f}억)")
+        lines.append(
+            f"  {r['grade']} {r['name']}\n"
+            f"    RS {r['rs']:.0f}  빈집여력 {r['bz']:.0f}  (40일:{l40_val:+.0f}억/5일:{s5_val:+.0f}억)"
+        )
 
-    failed_note = f"\n  ⚠️ 수급조회실패: {len(fetch_failed)}종목" if fetch_failed else ""
+    failed_note = f"\n  ⚠️ 수급조회 부분실패: {len(fetch_failed)}종목 (네이버 일시 불가)" if fetch_failed else ""
     today = datetime.now().strftime("%m/%d")
-    return f"🇰🇷 <b>KR 종목 선정 ({today})</b>\n빈집여력↑=아직 덜 매집=기회\n{'─'*22}\n" + "\n".join(lines) + failed_note
+    return (f"🇰🇷 <b>KR 종목 선정 ({today})</b>\n빈집여력↑=아직 덜 매집=기회\n{'─'*22}\n"
+            + "\n".join(lines) + failed_note)
