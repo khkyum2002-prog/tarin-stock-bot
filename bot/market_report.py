@@ -14,6 +14,30 @@ if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     sys.exit(1)
 
 
+def _retry(fn, attempts=3, delay=20):
+    """함수를 최대 attempts번 재시도. 모두 실패하면 None 반환."""
+    for i in range(attempts):
+        try:
+            result = fn()
+            if result is not None:
+                return result
+        except Exception as e:
+            print(f"  재시도 {i+1}/{attempts}: {e}")
+            if i < attempts - 1:
+                time.sleep(delay)
+    return None
+
+
+def _yf_download(tickers, **kwargs):
+    """yfinance download 재시도 래퍼."""
+    def _dl():
+        df = yf.download(tickers, progress=False, **kwargs)
+        if df.empty:
+            raise ValueError("빈 데이터")
+        return df
+    return _retry(_dl, attempts=3, delay=15)
+
+
 def send_telegram(message: str, retries: int = 3) -> bool:
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     if len(message) > 4000:
@@ -39,7 +63,8 @@ def check_macro() -> str:
             "DX-Y.NYB": "달러(DXY)", "GC=F": "금", "CL=F": "WTI원유",
             "^TNX": "미국10Y", "^IRX": "미국3M", "^KS11": "KOSPI", "^N225": "니케이",
         }
-        raw = yf.download(list(ticker_map.keys()), period="5d", auto_adjust=False, progress=False)
+        raw = _yf_download(list(ticker_map.keys()), period="5d", auto_adjust=False)
+        if raw is None: return "🌍 글로벌 매크로: 데이터 일시 불가 (잠시 후 재시도)"
         close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
         lines = []
         t10_val, t3m_val = None, None
@@ -76,14 +101,29 @@ def check_macro() -> str:
 
 def check_fear_greed() -> str:
     print("  [2/10] 공포탐욕 지수 분석 중...")
-    try:
-        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        resp.raise_for_status()
-        fg = resp.json()["fear_and_greed"]
-        score = float(fg["score"])
-        prev_close = float(fg["previous_close"])
-        prev_week = float(fg["previous_1_week"])
+
+    def _cnn_fg():
+        urls = [
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+            "https://fear-and-greed-index.p.rapidapi.com/v1/fgi",  # 백업 (공개 미러)
+        ]
+        for u in urls:
+            try:
+                r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+                if r.ok:
+                    data = r.json()
+                    fg = data.get("fear_and_greed") or data.get("fgi", {}).get("now", {})
+                    score = float(fg.get("score") or fg.get("value", 0))
+                    if score > 0:
+                        return score, float(fg.get("previous_close", score)), float(fg.get("previous_1_week", score))
+            except Exception:
+                continue
+        return None
+
+    result = _retry(_cnn_fg, attempts=3, delay=15)
+
+    if result:
+        score, prev_close, prev_week = result
         if score <= 25:   emoji, label = "😱", "극도의 공포"
         elif score <= 45: emoji, label = "😨", "공포"
         elif score <= 55: emoji, label = "😐", "중립"
@@ -92,18 +132,38 @@ def check_fear_greed() -> str:
         bar = "█" * int(score / 10) + "░" * (10 - int(score / 10))
         return (f"😨 <b>CNN 공포탐욕 지수</b>\n{emoji} <b>{score:.0f}/100</b>  {label}\n"
                 f"[{bar}]\n전일대비: {score-prev_close:+.1f}  1주대비: {score-prev_week:+.1f}")
+
+    # CNN API 완전 실패 시 → VIX로 대체 산출
+    try:
+        vix = _yf_download("^VIX", period="10d", auto_adjust=False)
+        if vix is not None:
+            v = float((vix["Close"] if isinstance(vix.columns, pd.MultiIndex) else vix).dropna().iloc[-1])
+            score = max(0, min(100, 100 - (v - 10) * 2.5))
+            if score <= 25:   emoji, label = "😱", "극도의 공포"
+            elif score <= 45: emoji, label = "😨", "공포"
+            elif score <= 55: emoji, label = "😐", "중립"
+            elif score <= 75: emoji, label = "😊", "탐욕"
+            else:             emoji, label = "🤑", "극도의 탐욕"
+            return (f"😨 <b>공포탐욕 (VIX 대체값)</b>\n{emoji} <b>{score:.0f}/100</b>  {label}\n"
+                    f"  VIX={v:.1f} 기반 추정치")
     except Exception:
-        return "😨 공포탐욕: API 오류"
+        pass
+    return "😨 공포탐욕: 오늘 CNN 서버 점검 중"
 
 
 def check_blood() -> str:
     print("  [3/10] BLOOD 인디케이터 분석 중...")
     try:
-        raw = yf.download(["^IRX", "^TNX", "HYG"], period="2y", auto_adjust=False, progress=False)
+        raw = _yf_download(["^IRX", "^TNX", "HYG"], period="2y", auto_adjust=False)
+        if raw is None: return "🩸 BLOOD: 데이터 일시 불가"
         close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
         irx = close["^IRX"].dropna() / 100
         t10 = close["^TNX"].dropna()
-        hyg_yield = yf.Ticker("HYG").info.get("dividendYield", 0.065) * 100
+        try:
+            dy = yf.Ticker("HYG").info.get("dividendYield") or 0
+            hyg_yield = float(dy) * 100 if dy and float(dy) > 0.01 else 6.5
+        except Exception:
+            hyg_yield = 6.5
         hy_spread = max(hyg_yield - float(t10.iloc[-1]), 0.01)
         blood_now = float(irx.iloc[-1]) / (hy_spread / 100)
         blood_series = irx.reindex(t10.index, method="ffill").dropna() / (hy_spread / 100)
@@ -121,7 +181,8 @@ def check_canary() -> str:
     print("  [4/10] 카나리아 자산 분석 중...")
     try:
         start = (datetime.today() - pd.DateOffset(years=2)).strftime("%Y-%m-%d")
-        raw = yf.download(["QQQ", "TIP", "AGG", "GLD", "BIL"], start=start, auto_adjust=False, progress=False)
+        raw = _yf_download(["QQQ", "TIP", "AGG", "GLD", "BIL"], start=start, auto_adjust=False)
+        if raw is None: return "📡 카나리아: 데이터 일시 불가"
         close = (raw["Adj Close"] if isinstance(raw.columns, pd.MultiIndex) and "Adj Close" in raw.columns.get_level_values(0)
                  else raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill().dropna()
         if len(close) < 252:
@@ -141,7 +202,8 @@ def check_canary() -> str:
 def check_heat() -> str:
     print("  [5/10] Heat 인디케이터 분석 중...")
     try:
-        raw = yf.download(["SPY","QQQ","RSP","HYG","IEF","LQD","^VIX"], start="2015-01-01", auto_adjust=False, progress=False)
+        raw = _yf_download(["SPY","QQQ","RSP","HYG","IEF","LQD","^VIX"], start="2015-01-01", auto_adjust=False)
+        if raw is None: return "🌡️ Heat: 데이터 일시 불가"
         px = (raw["Adj Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).rename(columns={"^VIX":"VIX"}).sort_index()
         def zs(s): return (s - s.rolling(252).mean()) / s.rolling(252).std(ddof=0)
         def n01(z, lo, hi): return z.clip(lo, hi).sub(lo).div(hi - lo)
@@ -165,7 +227,8 @@ def check_sector_rotation() -> str:
     try:
         sectors = {"XLK":"기술","XLC":"통신","XLY":"경기소비재","XLP":"필수소비재","XLI":"산업재",
                    "XLB":"소재","XLE":"에너지","XLF":"금융","XLV":"헬스케어","XLU":"유틸리티","XLRE":"리츠","SPY":"S&P500"}
-        raw = yf.download(list(sectors.keys()), period="1y", auto_adjust=False, progress=False)
+        raw = _yf_download(list(sectors.keys()), period="1y", auto_adjust=False)
+        if raw is None: return "🔄 섹터: 데이터 일시 불가"
         cl = (raw["Adj Close"] if isinstance(raw.columns, pd.MultiIndex) and "Adj Close" in raw.columns.get_level_values(0)
               else raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill().dropna(axis=1, how="any")
         r1m = cl.pct_change(21).iloc[-1]
@@ -186,7 +249,10 @@ def check_coppock() -> str:
     results = []
     for ticker, name in [("SPY","S&P500"),("QQQ","NASDAQ"),("^KS11","KOSPI")]:
         try:
-            data = yf.download(ticker, start="2000-01-01", auto_adjust=False, progress=False)
+            data = _yf_download(ticker, start="2000-01-01", auto_adjust=False)
+            if data is None:
+                results.append(f"  {name}: 데이터 없음")
+                continue
             close = (data["Adj Close"] if "Adj Close" in data.columns else data["Close"]).squeeze()
             monthly = close.resample("ME").last()
             monthly.loc[close.index[-1]] = float(close.iloc[-1])
@@ -214,12 +280,13 @@ def check_breadth() -> str:
                   "AMAT","MU","MRVL","SNPS","CDNS","PAYX","ADP","MSI","ADI","CRWD",
                   "WFC","USB","PNC","MS","C","SLB","EOG","COP","MPC","VLO"]
         end_dt = datetime.today()
-        cl_short = yf.download(sample, start=(end_dt-timedelta(days=45)).strftime("%Y-%m-%d"),
-                               auto_adjust=False, progress=False)
+        cl_short = _yf_download(sample, start=(end_dt-timedelta(days=45)).strftime("%Y-%m-%d"), auto_adjust=False)
+        if cl_short is None: return "⚡ ZBT: 데이터 일시 불가"
         cl_short = (cl_short["Close"] if isinstance(cl_short.columns, pd.MultiIndex) else cl_short).ffill().dropna(axis=1, how="any")
         zbt = ((cl_short.pct_change() > 0).sum(axis=1) / cl_short.shape[1]).rolling(10).mean().dropna()
         zbt_now = float(zbt.iloc[-1])
-        cl_long = yf.download(sample[:60], period="1y", auto_adjust=False, progress=False)
+        cl_long = _yf_download(sample[:60], period="1y", auto_adjust=False)
+        if cl_long is None: return f"⚡ ZBT: {zbt_now:.1%} (MA 데이터 없음)"
         cl_long = (cl_long["Close"] if isinstance(cl_long.columns, pd.MultiIndex) else cl_long).ffill().dropna(axis=1, how="any")
         above50 = sum(1 for col in cl_long.columns if len(cl_long[col].dropna()) >= 50 and cl_long[col].dropna().iloc[-1] > cl_long[col].dropna().rolling(50).mean().iloc[-1])
         above200 = sum(1 for col in cl_long.columns if len(cl_long[col].dropna()) >= 200 and cl_long[col].dropna().iloc[-1] > cl_long[col].dropna().rolling(200).mean().iloc[-1])
@@ -243,7 +310,8 @@ def check_momentum_stocks() -> str:
                    "LRCX","MAR","META","MRNA","MRVL","MSFT","MU","NFLX","NVDA","PANW",
                    "PAYX","PEP","PYPL","QCOM","REGN","ROST","SBUX","SNPS","TEAM","TMUS",
                    "TSLA","TXN","VRTX","WDAY","ZS","SPY"]
-        data = yf.download(tickers, period="1y", auto_adjust=False, progress=False)
+        data = _yf_download(tickers, period="1y", auto_adjust=False)
+        if data is None: return "📊 모멘텀: 데이터 일시 불가"
         if not isinstance(data.columns, pd.MultiIndex):
             return "📊 모멘텀: 데이터 구조 오류"
         close = (data["Adj Close"] if "Adj Close" in data.columns.get_level_values(0) else data["Close"]).ffill().dropna(axis=1, how="any")
@@ -274,13 +342,31 @@ def check_momentum_stocks() -> str:
 def check_tail_risk() -> str:
     print("  [10/10] 꼬리리스크 분석 중...")
     try:
-        raw = yf.download(["^SKEW","^VVIX","^VIX"], period="1y", progress=False, auto_adjust=False)
-        close = (raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill().dropna()
-        if not all(t in close.columns for t in ["^SKEW","^VVIX","^VIX"]):
-            return "🎯 꼬리리스크: 데이터 누락"
-        skew_now = float(close["^SKEW"].iloc[-1])
-        vvix_now = float(close["^VVIX"].iloc[-1])
-        vix_now  = float(close["^VIX"].iloc[-1])
+        raw = _yf_download(["^SKEW", "^VVIX", "^VIX"], period="1y", auto_adjust=False)
+        if raw is None: return "🎯 꼬리리스크: 데이터 일시 불가"
+        close = (raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill()
+
+        vix_col = next((c for c in close.columns if "VIX" in c and "VVIX" not in c), None)
+        vix_now = float(close[vix_col].dropna().iloc[-1]) if vix_col else None
+
+        skew_col = next((c for c in close.columns if "SKEW" in c), None)
+        vvix_col = next((c for c in close.columns if "VVIX" in c), None)
+
+        skew_now = float(close[skew_col].dropna().iloc[-1]) if skew_col and not close[skew_col].dropna().empty else None
+        vvix_now = float(close[vvix_col].dropna().iloc[-1]) if vvix_col and not close[vvix_col].dropna().empty else None
+
+        if vix_now is None:
+            return "🎯 꼬리리스크: VIX 데이터 없음"
+
+        # SKEW/VVIX 없을 때 VIX만으로 단순 평가
+        if skew_now is None or vvix_now is None:
+            if vix_now >= 30:   regime = "🚨 CRITICAL (VIX 급등)"
+            elif vix_now >= 22: regime = "⚠️ ELEVATED"
+            elif vix_now >= 15: regime = "🟡 MODERATE"
+            else:               regime = "🟢 LOW"
+            return (f"🎯 <b>꼬리리스크</b>\nVIX: {vix_now:.1f}  {regime}\n"
+                    f"  (SKEW/VVIX 지표 오늘 미제공)")
+
         skew_score = np.clip((skew_now - 100) / 50 * 100, 0, 100)
         vvix_score = np.clip((vvix_now - 70) / 80 * 100, 0, 100)
         composite = skew_score * 0.50 + vvix_score * 0.50
