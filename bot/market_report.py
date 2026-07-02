@@ -311,7 +311,7 @@ def main():
         print("[FATAL] 텔레그램 연결 실패 — 토큰/Chat ID 확인 필요")
         sys.exit(1)
 
-    header = (f"📋 <b>태린이아빠 시장 리포트</b>\n🕐 {now} (KST)\n{'─'*26}\n"
+    header = (f"📋 <b>아침주식</b>\n🕐 {now} (KST)\n{'─'*26}\n"
               f"① 매크로  ② 공포탐욕  ③ BLOOD\n④ 카나리아  ⑤ Heat  ⑥ 섹터\n"
               f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  🇰🇷 KR종목선정")
 
