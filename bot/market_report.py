@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os, sys, time
 import requests, pandas as pd, numpy as np, yfinance as yf
+import holidays
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -388,9 +389,21 @@ def check_tail_risk() -> str:
         return f"🎯 꼬리리스크: 오류 ({e})"
 
 
+def _is_trading_day() -> bool:
+    today = datetime.now().date()
+    if today.weekday() >= 5:  # 토(5) 일(6)
+        return False
+    kr_holidays = holidays.country_holidays("KR", years=today.year)
+    return today not in kr_holidays
+
+
 def main():
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"\n[{now}] ====== 시장 리포트 생성 시작 ======")
+
+    if not _is_trading_day():
+        print(f"[{now}] 오늘은 주말/공휴일 — 발송 건너뜀")
+        sys.exit(0)
 
     # 시작 핑 — 이게 안 오면 GitHub Actions 자체 문제
     if not send_telegram(f"🔔 <b>리포트 시작</b>  {now}"):
