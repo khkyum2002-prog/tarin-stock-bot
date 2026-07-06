@@ -390,7 +390,10 @@ def check_tail_risk() -> str:
 
 
 def _is_trading_day() -> bool:
-    today = datetime.now().date()
+    # GitHub Actions는 UTC로 실행 → KST(UTC+9)로 변환해서 판단
+    from datetime import timezone
+    kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
+    today = kst_now.date()
     if today.weekday() >= 5:  # 토(5) 일(6)
         return False
     kr_holidays = holidays.country_holidays("KR", years=today.year)
