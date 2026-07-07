@@ -29,14 +29,57 @@ def _retry(fn, attempts=3, delay=20):
     return None
 
 
+def _yf_direct(tickers, period_days=60):
+    """yfinance 완전 실패 시 Yahoo Finance API 직접 호출 (종가만)."""
+    import urllib.request, json
+    from datetime import timezone as tz
+    end_ts = int(datetime.now(tz.utc).timestamp())
+    start_ts = end_ts - period_days * 86400
+    single = isinstance(tickers, str)
+    ticker_list = [tickers] if single else list(tickers)
+    dfs = {}
+    for t in ticker_list:
+        for host in ("query1", "query2"):
+            try:
+                url = (f"https://{host}.finance.yahoo.com/v8/finance/chart/{t}"
+                       f"?period1={start_ts}&period2={end_ts}&interval=1d")
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=12) as r:
+                    data = json.loads(r.read())
+                res = data["chart"]["result"][0]
+                closes = res["indicators"]["quote"][0]["close"]
+                idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_localize(None)
+                dfs[t] = pd.Series(closes, index=idx, name=t)
+                break
+            except Exception:
+                continue
+    if not dfs:
+        return None
+    df = pd.DataFrame(dfs).dropna(how="all")
+    return df if not df.empty else None
+
+
 def _yf_download(tickers, **kwargs):
-    """yfinance download 재시도 래퍼."""
+    """yfinance download → 실패 시 직접 API 폴백."""
     def _dl():
         df = yf.download(tickers, progress=False, **kwargs)
         if df.empty:
             raise ValueError("빈 데이터")
         return df
-    return _retry(_dl, attempts=3, delay=15)
+    result = _retry(_dl, attempts=3, delay=15)
+    if result is not None:
+        return result
+    # yfinance 완전 실패 → 직접 API로 폴백 (종가 데이터만)
+    period = kwargs.get("period", "")
+    days = {"5d":5,"1mo":30,"3mo":90,"6mo":180,"1y":365,"2y":730}.get(period, 60)
+    start = kwargs.get("start", "")
+    if start:
+        try:
+            days = (datetime.today() - datetime.strptime(start, "%Y-%m-%d")).days
+        except Exception:
+            days = 365
+    print(f"  yfinance 실패 → 직접 API 폴백 시도: {tickers}")
+    return _yf_direct(tickers, period_days=days)
 
 
 def send_telegram(message: str, retries: int = 3) -> bool:
@@ -173,7 +216,9 @@ def check_blood() -> str:
         if blood_now > ma20 > ma60:   status = "🟢 상승추세"
         elif blood_now < ma20 < ma60: status = "🔴 하락추세"
         else:                         status = "🟡 혼조"
-        return (f"🩸 <b>BLOOD 인디케이터</b>\n현재: {blood_now:.3f}  MA20: {ma20:.3f}  MA60: {ma60:.3f}\n{status}")
+        return (f"🩸 <b>BLOOD 인디케이터</b>  단기금리÷하이일드스프레드\n"
+                f"  높을수록 위험선호↑ | 낮을수록 안전자산 도피\n"
+                f"현재: {blood_now:.3f}  20일선: {ma20:.3f}  60일선: {ma60:.3f}\n{status}")
     except Exception as e:
         return f"🩸 BLOOD: 오류 ({e})"
 
@@ -194,8 +239,10 @@ def check_canary() -> str:
         if qqq_m > 0 and tip_m > 0:   signal = "🚀 <b>공격 모드</b>"
         elif qqq_m <= 0 and tip_m <= 0: signal = "🛡️ <b>방어 모드</b>"
         else: signal = f"⚠️ <b>주의 모드</b>"
-        lines = [f"  {k}: {v:+.2%}" for k, v in results.items()]
-        return "📡 <b>카나리아 자산</b>\n" + signal + "\n" + "\n".join(lines)
+        name_map = {"QQQ":"나스닥100", "TIP":"물가채(TIPS)", "AGG":"채권", "GLD":"금", "BIL":"단기채"}
+        lines = [f"  {name_map.get(k,k)}: {v:+.2%}" for k, v in results.items()]
+        return ("📡 <b>카나리아 자산</b>  공격/방어 모드 판단\n"
+                "  QQQ↑+TIP↑=공격 | 둘다↓=방어\n" + signal + "\n" + "\n".join(lines))
     except Exception as e:
         return f"📡 카나리아: 오류 ({e})"
 
@@ -218,7 +265,9 @@ def check_heat() -> str:
         if heat_val >= 7.5:   status = "🔴 과열"
         elif heat_val <= 2.5: status = "🟢 냉각 — 매수 기회"
         else:                 status = "🟡 정상"
-        return f"🌡️ <b>BofA Heat</b>\n점수: <b>{heat_val:.1f}</b>/10  {status}"
+        return (f"🌡️ <b>시장과열 지수 (BofA Heat)</b>\n"
+                f"  7.5↑=과열주의 | 2.5↓=냉각(매수기회)\n"
+                f"점수: <b>{heat_val:.1f}</b>/10  {status}")
     except Exception as e:
         return f"🌡️ Heat: 오류 ({e})"
 
@@ -266,7 +315,8 @@ def check_coppock() -> str:
             results.append(f"  {name}: {val:.1f} {'↑' if val>prev else '↓'}  ({sig})")
         except Exception:
             results.append(f"  {name}: 계산 실패")
-    return "📈 <b>코폭 지표 (월간)</b>\n" + "\n".join(results)
+    return ("📈 <b>코폭 지표 (월간)</b>  장기 추세 전환 신호\n"
+            "  0선 상향돌파=골든크로스(매수신호)\n" + "\n".join(results))
 
 
 def check_breadth() -> str:
@@ -296,8 +346,10 @@ def check_breadth() -> str:
         elif zbt_now > 0.55:        sig = "🟡 ZBT 반등 조짐"
         elif zbt_now < 0.45:        sig = "🔴 ZBT 약세"
         else:                       sig = "⚪ ZBT 중립"
-        return (f"⚡ <b>ZBT + 시장 폭</b>\nZBT: <b>{zbt_now:.1%}</b>  {sig}\n"
-                f"MA50 상회: {above50/n*100:.0f}%  MA200 상회: {above200/n*100:.0f}%")
+        return (f"⚡ <b>ZBT + 시장 폭</b>  상승종목 비율 급반등 신호\n"
+                f"  61.5%↑=강한반등 | 45%↓=약세\n"
+                f"ZBT: <b>{zbt_now:.1%}</b>  {sig}\n"
+                f"50일선 위: {above50/n*100:.0f}%  200일선 위: {above200/n*100:.0f}%")
     except Exception as e:
         return f"⚡ ZBT: 오류 ({e})"
 
@@ -331,7 +383,7 @@ def check_momentum_stocks() -> str:
             if len(dv) >= 6:
                 pct = (float(dv.iloc[-1]) - float(dv.iloc[-6:-1].mean())) / float(dv.iloc[-6:-1].mean())
                 vol_rows.append({"t": t, "pct": pct})
-        result = "📊 <b>NASDAQ RS 상위 8</b>\n" + "\n".join(rs_lines)
+        result = "📊 <b>상대강도(RS) 상위 8종목</b>  S&P500 대비 모멘텀\n" + "\n".join(rs_lines)
         if vol_rows:
             top_vol = sorted(vol_rows, key=lambda x: x["pct"], reverse=True)[:5]
             result += "\n\n💰 <b>거래대금 스파이크 Top 5</b>\n" + "\n".join(f"  {i+1}. {r['t']}  ({r['pct']:+.0%})" for i,r in enumerate(top_vol))
@@ -380,8 +432,10 @@ def check_tail_risk() -> str:
             alerts.append("🚨 VIX 안정 속 SKEW 급등 — 기관 풋옵션 대량 매수")
         if vvix_now > 110 and vix_now < 18:
             alerts.append("🚨 VVIX/VIX 발산 — VIX 급등 선행 신호")
-        result = (f"🎯 <b>꼬리리스크 트라이앵글</b>\n복합: <b>{composite:.0f}/100</b>  {regime}\n"
-                  f"SKEW: {skew_now:.1f}  VVIX: {vvix_now:.1f}  VIX: {vix_now:.1f}")
+        result = (f"🎯 <b>꼬리리스크 트라이앵글</b>\n"
+                  f"  SKEW=기관풋옵션강도  VVIX=공포의공포  VIX=공포지수\n"
+                  f"복합: <b>{composite:.0f}/100</b>  {regime}\n"
+                  f"SKEW: {skew_now:.1f}  VVIX: {vvix_now:.1f}  VIX(공포): {vix_now:.1f}")
         if alerts:
             result += "\n" + "\n".join(alerts)
         return result
