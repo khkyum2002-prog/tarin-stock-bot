@@ -392,33 +392,71 @@ def check_momentum_stocks() -> str:
         return f"📊 모멘텀: 오류 ({e})"
 
 
+def _cboe_latest(index_name: str) -> float | None:
+    """CBOE 직접 다운로드로 최신 지수값 조회 (^SKEW, ^VVIX 대체)."""
+    url = f"https://cdn.cboe.com/api/global/us_indices/daily_prices/{index_name}_History.csv"
+    hdrs = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.cboe.com/"}
+    try:
+        r = requests.get(url, headers=hdrs, timeout=15)
+        if not r.ok:
+            return None
+        lines = [l for l in r.text.strip().split("\n") if l.strip()]
+        for line in reversed(lines[1:]):
+            parts = line.split(",")
+            if len(parts) >= 2:
+                val_str = parts[-1].strip().strip('"')
+                if val_str and val_str not in ("null", ""):
+                    try:
+                        return float(val_str)
+                    except ValueError:
+                        continue
+    except Exception:
+        pass
+    return None
+
+
 def check_tail_risk() -> str:
     print("  [10/10] 꼬리리스크 분석 중...")
     try:
-        raw = _yf_download(["^SKEW", "^VVIX", "^VIX"], period="1y", auto_adjust=False)
-        if raw is None: return "🎯 꼬리리스크: 데이터 일시 불가"
-        close = (raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill()
+        # VIX는 yfinance로 (안정적)
+        vix_raw = _yf_download("^VIX", period="5d", auto_adjust=False)
+        if vix_raw is not None:
+            vix_s = (vix_raw["Close"] if isinstance(vix_raw.columns, pd.MultiIndex) else vix_raw).dropna()
+            if isinstance(vix_s, pd.DataFrame):
+                vix_s = vix_s.iloc[:, 0]
+            vix_now = float(vix_s.dropna().iloc[-1]) if not vix_s.dropna().empty else None
+        else:
+            vix_now = None
 
-        vix_col = next((c for c in close.columns if "VIX" in c and "VVIX" not in c), None)
-        vix_now = float(close[vix_col].dropna().iloc[-1]) if vix_col else None
+        # SKEW / VVIX: yfinance 시도 → 실패 시 CBOE 직접
+        def _get_index(yf_ticker, cboe_name):
+            raw = _yf_download(yf_ticker, period="5d", auto_adjust=False)
+            if raw is not None:
+                s = (raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).dropna()
+                if isinstance(s, pd.DataFrame): s = s.iloc[:, 0]
+                if not s.dropna().empty:
+                    return float(s.dropna().iloc[-1])
+            print(f"  yfinance {yf_ticker} 실패 → CBOE 직접 조회")
+            return _cboe_latest(cboe_name)
 
-        skew_col = next((c for c in close.columns if "SKEW" in c), None)
-        vvix_col = next((c for c in close.columns if "VVIX" in c), None)
-
-        skew_now = float(close[skew_col].dropna().iloc[-1]) if skew_col and not close[skew_col].dropna().empty else None
-        vvix_now = float(close[vvix_col].dropna().iloc[-1]) if vvix_col and not close[vvix_col].dropna().empty else None
+        skew_now = _get_index("^SKEW", "SKEW")
+        vvix_now = _get_index("^VVIX", "VVIX")
 
         if vix_now is None:
             return "🎯 꼬리리스크: VIX 데이터 없음"
 
-        # SKEW/VVIX 없을 때 VIX만으로 단순 평가
         if skew_now is None or vvix_now is None:
             if vix_now >= 30:   regime = "🚨 CRITICAL (VIX 급등)"
             elif vix_now >= 22: regime = "⚠️ ELEVATED"
             elif vix_now >= 15: regime = "🟡 MODERATE"
             else:               regime = "🟢 LOW"
-            return (f"🎯 <b>꼬리리스크</b>\nVIX: {vix_now:.1f}  {regime}\n"
-                    f"  (SKEW/VVIX 지표 오늘 미제공)")
+            missing = []
+            if skew_now is None: missing.append("SKEW")
+            if vvix_now is None: missing.append("VVIX")
+            return (f"🎯 <b>꼬리리스크</b>\n"
+                    f"  SKEW=기관풋옵션강도  VIX=공포지수\n"
+                    f"VIX(공포): {vix_now:.1f}  {regime}\n"
+                    f"  ({'/'.join(missing)} 오늘 미제공)")
 
         skew_score = np.clip((skew_now - 100) / 50 * 100, 0, 100)
         vvix_score = np.clip((vvix_now - 70) / 80 * 100, 0, 100)
@@ -441,6 +479,52 @@ def check_tail_risk() -> str:
         return result
     except Exception as e:
         return f"🎯 꼬리리스크: 오류 ({e})"
+
+
+def check_tga() -> str:
+    print("  [11/11] TGA 잔고 분석 중...")
+    try:
+        # FRED 직접 CSV (API 키 불필요, 단위: 백만달러)
+        hdrs = {"User-Agent": "Mozilla/5.0"}
+        r = None
+        for attempt in range(3):
+            try:
+                r = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN",
+                                 headers=hdrs, timeout=20)
+                if r.ok:
+                    break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(10)
+        if r is None or not r.ok:
+            raise ValueError("FRED 연결 실패")
+        lines = [l.strip() for l in r.text.strip().split("\n")[1:] if l.strip()]
+        records = []
+        for line in lines:
+            parts = line.split(",")
+            if len(parts) == 2 and parts[1] not in (".", ""):
+                try:
+                    records.append(float(parts[1]) / 1000)  # 백만→십억달러(B)
+                except ValueError:
+                    pass
+        if len(records) < 2:
+            raise ValueError("데이터 부족")
+
+        bal = records[-1]           # 십억달러 (B)
+        chg_w = bal - records[-2]   # 전주 대비
+        chg_m = bal - records[max(0, len(records) - 5)]  # ~1달전 대비
+
+        if chg_w < -100:   sig = "🟢 급감 — 시중 유동성 대량 공급 (호재)"
+        elif chg_w < -30:  sig = "🟢 감소 — 유동성 소폭 공급"
+        elif chg_w > 100:  sig = "🔴 급증 — 시중 유동성 대량 흡수 (악재)"
+        elif chg_w > 30:   sig = "🟡 증가 — 유동성 소폭 흡수"
+        else:              sig = "⚪ 보합"
+
+        return (f"🏦 <b>TGA 잔고</b>  미국 재무부 당좌계좌\n"
+                f"  잔고↓=시중에 돈 풀림(호재) | 잔고↑=흡수(악재)\n"
+                f"현재: <b>${bal:,.0f}B</b>  전주: {chg_w:+,.0f}B  전월: {chg_m:+,.0f}B\n{sig}")
+    except Exception as e:
+        return f"🏦 TGA: 데이터 일시 불가 ({e})"
 
 
 def _is_trading_day() -> bool:
@@ -469,11 +553,11 @@ def main():
 
     header = (f"📋 <b>아침주식</b>\n🕐 {now} (KST)\n{'─'*26}\n"
               f"① 매크로  ② 공포탐욕  ③ BLOOD\n④ 카나리아  ⑤ Heat  ⑥ 섹터\n"
-              f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  🇰🇷 KR종목선정")
+              f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  ⑪ TGA잔고  🇰🇷 KR종목선정")
 
     sections = [check_macro, check_fear_greed, check_blood, check_canary, check_heat,
                 check_sector_rotation, check_coppock, check_breadth, check_momentum_stocks,
-                check_tail_risk, check_kr_screening]
+                check_tail_risk, check_tga, check_kr_screening]
 
     send_telegram(header)
     time.sleep(0.3)
