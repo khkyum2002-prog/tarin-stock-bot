@@ -484,29 +484,7 @@ def check_tail_risk() -> str:
 def check_tga() -> str:
     print("  [11/11] TGA 잔고 분석 중...")
     try:
-        # FRED 직접 CSV (API 키 불필요, 단위: 백만달러)
-        hdrs = {"User-Agent": "Mozilla/5.0"}
-        r = None
-        for attempt in range(3):
-            try:
-                r = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN",
-                                 headers=hdrs, timeout=20)
-                if r.ok:
-                    break
-            except Exception:
-                if attempt < 2:
-                    time.sleep(10)
-        if r is None or not r.ok:
-            raise ValueError("FRED 연결 실패")
-        lines = [l.strip() for l in r.text.strip().split("\n")[1:] if l.strip()]
-        records = []
-        for line in lines:
-            parts = line.split(",")
-            if len(parts) == 2 and parts[1] not in (".", ""):
-                try:
-                    records.append(float(parts[1]) / 1000)  # 백만→십억달러(B)
-                except ValueError:
-                    pass
+        records = _fetch_tga_records()
         if len(records) < 2:
             raise ValueError("데이터 부족")
 
@@ -525,6 +503,60 @@ def check_tga() -> str:
                 f"현재: <b>${bal:,.0f}B</b>  전주: {chg_w:+,.0f}B  전월: {chg_m:+,.0f}B\n{sig}")
     except Exception as e:
         return f"🏦 TGA: 데이터 일시 불가 ({e})"
+
+
+def _fetch_tga_records() -> list:
+    """TGA 잔고(십억달러) 리스트 반환. 재무부 공식 API → FRED CSV 순으로 시도."""
+    hdrs = {"User-Agent": "Mozilla/5.0"}
+
+    # ── ① 미국 재무부 공식 API (fiscaldata.treasury.gov) ──────────────
+    # close_today_bal은 null, 최신 구조에서는 open_today_bal에 전일 마감잔고가 들어있음
+    try:
+        url = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
+               "accounting/dts/operating_cash_balance"
+               "?fields=record_date,account_type,open_today_bal"
+               "&filter=account_type:eq:Treasury General Account (TGA) Closing Balance"
+               "&sort=-record_date&page[size]=40")
+        r = requests.get(url, headers=hdrs, timeout=20)
+        if r.ok:
+            data = r.json().get("data", [])
+            vals = []
+            for item in reversed(data):  # 오래된 순으로 쌓기
+                try:
+                    v = float(item["open_today_bal"])
+                    if v > 0:
+                        vals.append(v / 1000)  # 백만→십억달러(B)
+                except (ValueError, KeyError, TypeError):
+                    pass
+            if len(vals) >= 2:
+                print("  TGA: 재무부 공식 API 성공")
+                return vals
+    except Exception as e:
+        print(f"  TGA 재무부 API 실패: {e}")
+
+    # ── ② FRED CSV 폴백 ──────────────────────────────────────────────
+    for attempt in range(3):
+        try:
+            r = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN",
+                             headers=hdrs, timeout=20)
+            if r.ok:
+                vals = []
+                for line in r.text.strip().split("\n")[1:]:
+                    parts = line.strip().split(",")
+                    if len(parts) == 2 and parts[1] not in (".", "", "nan"):
+                        try:
+                            vals.append(float(parts[1]) / 1000)
+                        except ValueError:
+                            pass
+                if len(vals) >= 2:
+                    print("  TGA: FRED 폴백 성공")
+                    return vals
+        except Exception as e:
+            print(f"  TGA FRED 시도 {attempt+1}/3: {e}")
+            if attempt < 2:
+                time.sleep(10)
+
+    return []
 
 
 def _is_trading_day() -> bool:
