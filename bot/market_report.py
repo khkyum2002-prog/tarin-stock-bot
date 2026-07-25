@@ -147,22 +147,22 @@ def check_fear_greed() -> str:
     print("  [2/10] 공포탐욕 지수 분석 중...")
 
     def _cnn_fg():
-        urls = [
-            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
-            "https://fear-and-greed-index.p.rapidapi.com/v1/fgi",  # 백업 (공개 미러)
-        ]
-        for u in urls:
-            try:
-                r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
-                if r.ok:
-                    data = r.json()
-                    fg = data.get("fear_and_greed") or data.get("fgi", {}).get("now", {})
-                    score = float(fg.get("score") or fg.get("value", 0))
-                    if score > 0:
-                        return score, float(fg.get("previous_close", score)), float(fg.get("previous_1_week", score))
-            except Exception:
-                continue
-        return None
+        # Referer 헤더 필수 — 없으면 418 반환
+        hdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Referer": "https://www.cnn.com/markets/fear-and-greed",
+        }
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        r = requests.get(url, headers=hdrs, timeout=12)
+        if not r.ok:
+            raise ValueError(f"CNN API {r.status_code}")
+        data = r.json()
+        fg = data.get("fear_and_greed", {})
+        score = float(fg.get("score", 0))
+        if score <= 0:
+            raise ValueError("score=0")
+        return score, float(fg.get("previous_close", score)), float(fg.get("previous_1_week", score))
 
     result = _retry(_cnn_fg, attempts=3, delay=15)
 
@@ -181,7 +181,10 @@ def check_fear_greed() -> str:
     try:
         vix = _yf_download("^VIX", period="10d", auto_adjust=False)
         if vix is not None:
-            v = float((vix["Close"] if isinstance(vix.columns, pd.MultiIndex) else vix).dropna().iloc[-1])
+            vix_c = vix["Close"] if isinstance(vix.columns, pd.MultiIndex) else vix
+            if isinstance(vix_c, pd.DataFrame):
+                vix_c = vix_c.iloc[:, 0]
+            v = float(vix_c.dropna().iloc[-1])
             score = max(0, min(100, 100 - (v - 10) * 2.5))
             if score <= 25:   emoji, label = "😱", "극도의 공포"
             elif score <= 45: emoji, label = "😨", "공포"
@@ -192,7 +195,7 @@ def check_fear_greed() -> str:
                     f"  VIX={v:.1f} 기반 추정치")
     except Exception:
         pass
-    return "😨 공포탐욕: 오늘 CNN 서버 점검 중"
+    return "😨 공포탐욕: 데이터 일시 불가"
 
 
 def check_blood() -> str:
@@ -370,9 +373,17 @@ def check_momentum_stocks() -> str:
         close = (data["Adj Close"] if "Adj Close" in data.columns.get_level_values(0) else data["Close"]).ffill().dropna(axis=1, how="any")
         volume, close_raw = data["Volume"], data["Close"]
         if "SPY" not in close.columns: return "📊 모멘텀: SPY 없음"
-        avg = close.pct_change(63).iloc[-1]*0.5 + close.pct_change(126).iloc[-1]*0.3 + close.pct_change(252).iloc[-1]*0.2
-        spy_m = avg.get("SPY", 0)
-        if spy_m == 0: return "📊 모멘텀: SPY 0"
+        # 보유 행수에 맞게 룩백 상한 설정 (pct_change(n)은 n+1행 필요)
+        n = len(close)
+        p63  = min(63,  n - 2)
+        p126 = min(126, n - 2)
+        p252 = min(252, n - 2)
+        avg = (close.pct_change(p63).iloc[-1]  * 0.5 +
+               close.pct_change(p126).iloc[-1] * 0.3 +
+               close.pct_change(p252).iloc[-1] * 0.2)
+        spy_m = avg.get("SPY", None)
+        if spy_m is None or pd.isna(spy_m) or spy_m == 0:
+            return "📊 모멘텀: SPY 데이터 부족"
         rs = avg.drop("SPY", errors="ignore") / spy_m
         top8 = rs.nlargest(8)
         rs_lines = [f"  {i+1}. {t}  (RS {v:.2f}x  {float(close.pct_change(21).iloc[-1].get(t,0)):+.1%}/1M)" for i,(t,v) in enumerate(top8.items())]
@@ -604,6 +615,9 @@ def main():
         except Exception as e:
             msg = f"⚠️ {fn.__name__} 오류: {e}"
             failed.append(fn.__name__)
+        # 첫 줄만 로그에 출력 (오류/정상 여부 확인용)
+        first_line = msg.split('\n')[0][:80].replace('<b>','').replace('</b>','')
+        print(f"  → {fn.__name__}: {first_line}", flush=True)
         # 전송 실패 시 30초 후 1회 재시도
         if not send_telegram(msg):
             time.sleep(30)
