@@ -560,6 +560,9 @@ def _fetch_tga_records() -> list:
 
 
 def _is_trading_day() -> bool:
+    # FORCE_RUN=true 이면 주말/공휴일도 강제 발송
+    if os.environ.get("FORCE_RUN", "false").lower() == "true":
+        return True
     # GitHub Actions는 UTC로 실행 → KST(UTC+9)로 변환해서 판단
     from datetime import timezone
     kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
