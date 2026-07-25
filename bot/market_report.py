@@ -393,6 +393,22 @@ def check_breadth() -> str:
 
 def check_momentum_stocks() -> str:
     print("  [9/10] 모멘텀 + 거래대금 분석 중...")
+    NAMES = {
+        "AAPL":"애플","ADBE":"어도비","ADI":"아날로그디바이시스","ADP":"ADP",
+        "ADSK":"오토데스크","AMAT":"어플라이드머티리얼즈","AMD":"AMD","AMGN":"암젠",
+        "AMZN":"아마존","ANF":"아베크롬비","ASML":"ASML","AVGO":"브로드컴",
+        "BIIB":"바이오젠","BKNG":"부킹홀딩스","CDNS":"케이던스","COST":"코스트코",
+        "CRWD":"크라우드스트라이크","CSCO":"시스코","DDOG":"데이터독","EA":"EA게임즈",
+        "FAST":"패스널","FTNT":"포티넷","GILD":"길리어드","GOOG":"구글",
+        "HON":"허니웰","INTC":"인텔","INTU":"인튜이트","ISRG":"인튜이티브서지컬",
+        "KLAC":"KLA","LIN":"린데","LRCX":"램리서치","MAR":"메리어트",
+        "META":"메타","MRNA":"모더나","MRVL":"마벨테크","MSFT":"마이크로소프트",
+        "MU":"마이크론","NFLX":"넷플릭스","NVDA":"엔비디아","PANW":"팔로알토",
+        "PAYX":"페이첵스","PEP":"펩시코","PYPL":"페이팔","QCOM":"퀄컴",
+        "REGN":"리제네론","ROST":"로스스토어","SBUX":"스타벅스","SNPS":"시놉시스",
+        "TEAM":"아틀라시안","TMUS":"T모바일","TSLA":"테슬라","TXN":"텍사스인스트루먼트",
+        "VRTX":"버텍스파마","WDAY":"워크데이","ZS":"지스케일러",
+    }
     try:
         tickers = ["AAPL","ADBE","ADI","ADP","ADSK","AMAT","AMD","AMGN","AMZN","ANF",
                    "ASML","AVGO","BIIB","BKNG","CDNS","COST","CRWD","CSCO","DDOG","EA",
@@ -426,7 +442,8 @@ def check_momentum_stocks() -> str:
         for i, (t, pct_rank) in enumerate(top8.items()):
             r1m_val = float(r1m.get(t, np.nan))
             r1m_str = f"{r1m_val:+.1%}" if not np.isnan(r1m_val) else "N/A"
-            rs_lines.append(f"  {i+1}. {t}  (상위 {max(1, round(100-pct_rank)):.0f}%  {r1m_str}/1M)")
+            name = NAMES.get(t, t)
+            rs_lines.append(f"  {i+1}. {t}({name})  상위{max(1, round(100-pct_rank)):.0f}%  {r1m_str}/1M")
         vol_rows = []
         for t in tickers:
             if t not in close_raw.columns or t not in volume.columns: continue
@@ -437,7 +454,8 @@ def check_momentum_stocks() -> str:
         result = "📊 <b>모멘텀 상위 8종목</b>  유니버스 내 상대 순위\n" + "\n".join(rs_lines)
         if vol_rows:
             top_vol = sorted(vol_rows, key=lambda x: x["pct"], reverse=True)[:5]
-            result += "\n\n💰 <b>거래대금 스파이크 Top 5</b>\n" + "\n".join(f"  {i+1}. {r['t']}  ({r['pct']:+.0%})" for i,r in enumerate(top_vol))
+            result += "\n\n💰 <b>거래대금 스파이크 Top 5</b>\n" + "\n".join(
+                f"  {i+1}. {r['t']}({NAMES.get(r['t'], r['t'])})  {r['pct']:+.0%}" for i,r in enumerate(top_vol))
         return result
     except Exception as e:
         return f"📊 모멘텀: 오류 ({e})"
