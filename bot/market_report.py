@@ -107,6 +107,13 @@ def check_macro() -> str:
             "DX-Y.NYB": "달러(DXY)", "GC=F": "금", "CL=F": "WTI원유",
             "^TNX": "미국10Y", "^IRX": "미국3M", "^KS11": "KOSPI", "^N225": "니케이",
         }
+        # 합리적 값 범위 (min, max) — 벗어나면 yfinance 반환 오류로 판단하고 건너뜀
+        SANITY = {
+            "DX-Y.NYB": (70, 130), "GC=F": (500, 8000), "CL=F": (5, 200),
+            "^TNX": (0, 20), "^IRX": (0, 20),
+            "^KS11": (500, 10000),    # KOSPI: 역대 최고 3,316 → 상한 10,000
+            "^N225": (5000, 150000),  # 니케이: 역대 최고 ~42,000 → 상한 150,000
+        }
         raw = _yf_download(list(ticker_map.keys()), period="5d", auto_adjust=False)
         if raw is None: return "🌍 글로벌 매크로: 데이터 일시 불가 (잠시 후 재시도)"
         close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
@@ -119,6 +126,10 @@ def check_macro() -> str:
             if len(s) < 2:
                 continue
             val = float(s.iloc[-1])
+            lo, hi = SANITY.get(ticker, (None, None))
+            if lo is not None and not (lo <= val <= hi):
+                lines.append(f"  {name}: ⚠️ 이상값({val:,.2f}) — yfinance 데이터 오류")
+                continue
             chg = float(s.pct_change().iloc[-1]) * 100
             arrow = "▲" if chg >= 0 else "▼"
             if ticker in ("^TNX", "^IRX"):
@@ -243,7 +254,10 @@ def check_canary() -> str:
         elif qqq_m <= 0 and tip_m <= 0: signal = "🛡️ <b>방어 모드</b>"
         else: signal = f"⚠️ <b>주의 모드</b>"
         name_map = {"QQQ":"나스닥100", "TIP":"물가채(TIPS)", "AGG":"채권", "GLD":"금", "BIL":"단기채"}
-        lines = [f"  {name_map.get(k,k)}: {v:+.2%}" for k, v in results.items()]
+        # 신호 판단 기준인 QQQ·TIP를 먼저 표시
+        priority = ["QQQ", "TIP"]
+        ordered_keys = [k for k in priority if k in results] + [k for k in results if k not in priority]
+        lines = [f"  {name_map.get(k,k)}: {results[k]:+.2%}" for k in ordered_keys]
         return ("📡 <b>카나리아 자산</b>  공격/방어 모드 판단\n"
                 "  QQQ↑+TIP↑=공격 | 둘다↓=방어\n" + signal + "\n" + "\n".join(lines))
     except Exception as e:
@@ -263,6 +277,7 @@ def check_heat() -> str:
         if {"HYG","LQD"}.issubset(px.columns): df["h2"] = n01(zs(px["HYG"]/px["LQD"]), 0, 2)
         if {"RSP","SPY"}.issubset(px.columns): df["h3"] = ((-zs(px["RSP"]/px["SPY"]))/2).clip(0, 1)
         if "SPY" in px.columns: df["h4"] = n01(zs(px["SPY"]/px["SPY"].rolling(200).mean()-1), 0.5, 2)
+        if "VIX" in px.columns: df["h5"] = n01(-zs(px["VIX"]), 0, 2)  # VIX 낮을수록=과열, 높을수록=냉각
         df["heat"] = (df[[c for c in df.columns if c.startswith("h")]].mean(axis=1) * 10).rolling(10).mean()
         heat_val = float(df["heat"].dropna().iloc[-1])
         if heat_val >= 7.5:   status = "🔴 과열"
@@ -286,13 +301,14 @@ def check_sector_rotation() -> str:
               else raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw).ffill().dropna(axis=1, how="any")
         r1m = cl.pct_change(21).iloc[-1]
         adj_mom = (r1m*0.5 + cl.pct_change(63).iloc[-1]*0.3 + cl.pct_change(126).iloc[-1]*0.2) / cl.pct_change().rolling(63).std().iloc[-1].replace(0, np.nan)
-        spy_score = adj_mom.get("SPY", None)
-        if not spy_score: return "🔄 섹터: SPY 없음"
-        rs = adj_mom.drop("SPY", errors="ignore") / abs(spy_score)
-        sorted_rs = rs.sort_values(ascending=False)
-        fmt = lambda t, v: f"  {sectors.get(t,t)}({t}): {v:.2f}x  {float(r1m.get(t,0)):+.1%}/1M"
-        return ("🔄 <b>섹터 로테이션</b>\n<b>▲ 강세</b>\n" + "\n".join(fmt(t,v) for t,v in sorted_rs.head(3).items()) +
-                "\n<b>▼ 약세</b>\n" + "\n".join(fmt(t,v) for t,v in sorted_rs.tail(3).items()))
+        # 절대비율(÷SPY) 대신 섹터 간 백분위 순위로 표시
+        sectors_mom = adj_mom.drop("SPY", errors="ignore").dropna()
+        if sectors_mom.empty: return "🔄 섹터: 데이터 없음"
+        ranked = sectors_mom.rank(pct=True) * 100  # 0~100, 높을수록 강세
+        sorted_ranked = ranked.sort_values(ascending=False)
+        fmt = lambda t, v: f"  {sectors.get(t,t)}({t}): 상위{max(1, round(100-v)):.0f}%  {float(r1m.get(t,0)):+.1%}/1M"
+        return ("🔄 <b>섹터 로테이션</b>\n<b>▲ 강세</b>\n" + "\n".join(fmt(t,v) for t,v in sorted_ranked.head(3).items()) +
+                "\n<b>▼ 약세</b>\n" + "\n".join(fmt(t,v) for t,v in sorted_ranked.tail(3).items()))
     except Exception as e:
         return f"🔄 섹터: 오류 ({e})"
 
@@ -306,13 +322,31 @@ def check_coppock() -> str:
             if data is None:
                 results.append(f"  {name}: 데이터 없음")
                 continue
-            close = (data["Adj Close"] if "Adj Close" in data.columns else data["Close"]).squeeze()
-            monthly = close.resample("ME").last()
-            monthly.loc[close.index[-1]] = float(close.iloc[-1])
-            coppock = ((monthly.pct_change(14) + monthly.pct_change(11)) * 100).ewm(span=10, adjust=False).mean().dropna()
+            # 단일 티커 MultiIndex 대응
+            if isinstance(data.columns, pd.MultiIndex):
+                lvl0 = data.columns.get_level_values(0).unique()
+                col = "Adj Close" if "Adj Close" in lvl0 else "Close"
+                close = data[col].squeeze()
+            else:
+                close = data["Adj Close"] if "Adj Close" in data.columns else data["Close"]
+            close = pd.Series(close.values, index=close.index, dtype=float).dropna()
+            monthly = close.resample("ME").last().dropna()
+            # 미완월(현재 월)의 최신 가격이 월말 데이터에 없으면 추가
+            if close.index[-1] > monthly.index[-1]:
+                monthly.loc[close.index[-1]] = float(close.iloc[-1])
+                monthly = monthly.sort_index()
+            # 전통 코폭 공식: WMA(ROC(14)+ROC(11), 10)  — EWM 대신 WMA 사용
+            roc = (monthly.pct_change(14) + monthly.pct_change(11)) * 100
+            roc = roc.clip(-200, 200).dropna()  # 데이터 이상치 방지
+            _w = np.arange(1, 11, dtype=float)
+            _norm = _w.sum()
+            coppock = roc.rolling(10).apply(lambda x: (x * _w).sum() / _norm, raw=True).dropna()
+            if len(coppock) < 2:
+                results.append(f"  {name}: 데이터 부족")
+                continue
             val, prev = float(coppock.iloc[-1]), float(coppock.iloc[-2])
-            if val > 0 and prev <= 0:   sig = "골든크로스!"
-            elif val < 0 and prev >= 0: sig = "데드크로스!"
+            if val > 0 and prev <= 0:   sig = "골든크로스! 🎯"
+            elif val < 0 and prev >= 0: sig = "데드크로스! ⚠️"
             elif val > 0:               sig = "양수권 ✅"
             else:                       sig = "음수권 ⚠️"
             results.append(f"  {name}: {val:.1f} {'↑' if val>prev else '↓'}  ({sig})")
@@ -339,7 +373,7 @@ def check_breadth() -> str:
         cl_short = (cl_short["Close"] if isinstance(cl_short.columns, pd.MultiIndex) else cl_short).ffill().dropna(axis=1, how="any")
         zbt = ((cl_short.pct_change() > 0).sum(axis=1) / cl_short.shape[1]).rolling(10).mean().dropna()
         zbt_now = float(zbt.iloc[-1])
-        cl_long = _yf_download(sample[:60], period="1y", auto_adjust=False)
+        cl_long = _yf_download(sample, period="1y", auto_adjust=False)
         if cl_long is None: return f"⚡ ZBT: {zbt_now:.1%} (MA 데이터 없음)"
         cl_long = (cl_long["Close"] if isinstance(cl_long.columns, pd.MultiIndex) else cl_long).ffill().dropna(axis=1, how="any")
         above50 = sum(1 for col in cl_long.columns if len(cl_long[col].dropna()) >= 50 and cl_long[col].dropna().iloc[-1] > cl_long[col].dropna().rolling(50).mean().iloc[-1])
@@ -378,15 +412,21 @@ def check_momentum_stocks() -> str:
         p63  = min(63,  n - 2)
         p126 = min(126, n - 2)
         p252 = min(252, n - 2)
-        avg = (close.pct_change(p63).iloc[-1]  * 0.5 +
+        mom = (close.pct_change(p63).iloc[-1]  * 0.5 +
                close.pct_change(p126).iloc[-1] * 0.3 +
                close.pct_change(p252).iloc[-1] * 0.2)
-        spy_m = avg.get("SPY", None)
-        if spy_m is None or pd.isna(spy_m) or spy_m == 0:
-            return "📊 모멘텀: SPY 데이터 부족"
-        rs = avg.drop("SPY", errors="ignore") / spy_m
-        top8 = rs.nlargest(8)
-        rs_lines = [f"  {i+1}. {t}  (RS {v:.2f}x  {float(close.pct_change(21).iloc[-1].get(t,0)):+.1%}/1M)" for i,(t,v) in enumerate(top8.items())]
+        # 절대비율(÷SPY) 대신 유니버스 내 백분위 순위로 표시
+        stocks_mom = mom.drop("SPY", errors="ignore").dropna()
+        if stocks_mom.empty:
+            return "📊 모멘텀: 데이터 부족"
+        ranked = stocks_mom.rank(pct=True) * 100   # 0~100, 높을수록 강한 모멘텀
+        top8 = ranked.nlargest(8)
+        r1m = close.pct_change(21).iloc[-1]
+        rs_lines = []
+        for i, (t, pct_rank) in enumerate(top8.items()):
+            r1m_val = float(r1m.get(t, np.nan))
+            r1m_str = f"{r1m_val:+.1%}" if not np.isnan(r1m_val) else "N/A"
+            rs_lines.append(f"  {i+1}. {t}  (상위 {max(1, round(100-pct_rank)):.0f}%  {r1m_str}/1M)")
         vol_rows = []
         for t in tickers:
             if t not in close_raw.columns or t not in volume.columns: continue
@@ -394,7 +434,7 @@ def check_momentum_stocks() -> str:
             if len(dv) >= 6:
                 pct = (float(dv.iloc[-1]) - float(dv.iloc[-6:-1].mean())) / float(dv.iloc[-6:-1].mean())
                 vol_rows.append({"t": t, "pct": pct})
-        result = "📊 <b>상대강도(RS) 상위 8종목</b>  S&P500 대비 모멘텀\n" + "\n".join(rs_lines)
+        result = "📊 <b>모멘텀 상위 8종목</b>  유니버스 내 상대 순위\n" + "\n".join(rs_lines)
         if vol_rows:
             top_vol = sorted(vol_rows, key=lambda x: x["pct"], reverse=True)[:5]
             result += "\n\n💰 <b>거래대금 스파이크 Top 5</b>\n" + "\n".join(f"  {i+1}. {r['t']}  ({r['pct']:+.0%})" for i,r in enumerate(top_vol))

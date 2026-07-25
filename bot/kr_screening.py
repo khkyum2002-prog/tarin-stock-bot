@@ -50,7 +50,6 @@ KR_STOCKS = {
     "272210.KS": "한화시스템",
     # ── 조선 ────────────────────────────────────────────────────
     "009540.KS": "HD한국조선해양",
-    "010620.KS": "HD현대미포",
     "042660.KS": "한화오션",
     "329180.KS": "HD현대중공업",
     # ── 2차전지 ─────────────────────────────────────────────────
@@ -112,6 +111,27 @@ def _parse_supply_int(s: str) -> int:
         return 0
 
 
+def _find_supply_table(soup):
+    """네이버 수급 페이지에서 날짜·종가 데이터가 있는 테이블을 동적으로 찾는다.
+    tables[3]을 우선 시도하고, 날짜 형식 행이 없으면 인접 테이블(2, 4, 5)도 탐색."""
+    tables = soup.find_all("table")
+    for idx in [3, 2, 4, 5]:
+        if idx >= len(tables):
+            continue
+        tbl = tables[idx]
+        for row in tbl.find_all("tr"):
+            cells = [c.get_text(strip=True) for c in row.find_all("td")]
+            # 날짜(YYYY.MM.DD) + 최소 7컬럼 행이면 해당 테이블 채택
+            if len(cells) >= 7 and cells[0] and "." in cells[0]:
+                try:
+                    parts = cells[0].split(".")
+                    if len(parts) == 3 and all(p.isdigit() for p in parts):
+                        return tbl
+                except Exception:
+                    pass
+    return None
+
+
 def _naver_supply_single(code: str, days: int = 40) -> list:
     daily = []
     for pg in range(1, 5):
@@ -124,17 +144,18 @@ def _naver_supply_single(code: str, days: int = 40) -> list:
                 if not r.ok:
                     break
                 soup = BS(r.content, "html.parser", from_encoding="euc-kr")
-                tables = soup.find_all("table")
-                if len(tables) < 4:
+                target_table = _find_supply_table(soup)
+                if target_table is None:
+                    # 테이블 구조 인식 불가 → 재시도 없이 다음 페이지로
                     break
-                target_table = tables[3]
+                rows_found = 0
                 for row in target_table.find_all("tr"):
                     cells = [c.get_text(strip=True) for c in row.find_all("td")]
                     # 날짜 포함 행: 최소 7컬럼 + 날짜에 "." 포함
                     if len(cells) >= 7 and cells[0] and "." in cells[0]:
                         try:
                             price_str = cells[1].replace(",", "").strip()
-                            if not price_str or not price_str.replace("-","").isdigit():
+                            if not price_str or not price_str.replace("-", "").isdigit():
                                 continue
                             cp = int(price_str)
                             # 기관(5) + 외국인(6) 합산 순매수
@@ -142,10 +163,16 @@ def _naver_supply_single(code: str, days: int = 40) -> list:
                             fq = _parse_supply_int(cells[6])
                             if cp > 0:
                                 daily.append((iq + fq) * cp / 1e8)
+                                rows_found += 1
                                 if len(daily) >= days:
                                     break
                         except Exception:
                             continue
+                if rows_found == 0 and pg == 1:
+                    # 첫 페이지에서 유효 행이 0개면 재시도
+                    if attempt == 0:
+                        time.sleep(3)
+                        continue
                 break  # 성공 시 재시도 루프 탈출
             except requests.RequestException:
                 if attempt == 0:
@@ -190,9 +217,13 @@ def _run_kr_screening() -> str:
     bench_ret = None
     if "^KS11" in close_all.columns and len(close_all) >= 20:
         bx = close_all["^KS11"].squeeze().dropna()
-        n_b = min(66, len(bx) - 1)
-        if n_b > 0 and float(bx.iloc[-n_b]) > 0:
-            bench_ret = float(bx.iloc[-1] / bx.iloc[-n_b] - 1)
+        if len(bx) >= 2:
+            n_b = min(66, len(bx) - 1)
+            if n_b > 0:
+                base_b = float(bx.iloc[-n_b])
+                cur_b = float(bx.iloc[-1])
+                if base_b > 0 and not (np.isnan(base_b) or np.isnan(cur_b)):
+                    bench_ret = cur_b / base_b - 1
 
     rs_map = {}
     for t in tickers:
@@ -201,8 +232,9 @@ def _run_kr_screening() -> str:
             if len(s) >= 20:
                 n = min(66, len(s) - 1)
                 base = float(s.iloc[-n])
-                if base > 0:
-                    rs_map[t] = float(s.iloc[-1] / base - 1) - (bench_ret or 0.0)
+                cur = float(s.iloc[-1])
+                if base > 0 and not (np.isnan(base) or np.isnan(cur)):
+                    rs_map[t] = cur / base - 1 - (bench_ret or 0.0)
                 else:
                     rs_map[t] = 0.0
             else:
