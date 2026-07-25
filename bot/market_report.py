@@ -551,7 +551,7 @@ def check_tail_risk() -> str:
 
 
 def check_tga() -> str:
-    print("  [11/11] TGA 잔고 분석 중...")
+    print("  [11/12] TGA 잔고 분석 중...")
     try:
         records = _fetch_tga_records()
         if len(records) < 2:
@@ -572,6 +572,108 @@ def check_tga() -> str:
                 f"현재: <b>${bal:,.0f}B</b>  전주: {chg_w:+,.0f}B  전월: {chg_m:+,.0f}B\n{sig}")
     except Exception as e:
         return f"🏦 TGA: 데이터 일시 불가 ({e})"
+
+
+def check_valuation() -> str:
+    print("  [12/12] 밸류에이션 분석 중...", flush=True)
+    hdrs = {"User-Agent": "Mozilla/5.0"}
+    msg_parts = []
+
+    def _get_fred_last(series_id):
+        """FRED CSV에서 해당 시리즈의 최신 유효값 반환."""
+        r = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}",
+                         headers=hdrs, timeout=20)
+        if not r.ok:
+            raise ValueError(f"FRED {series_id} HTTP {r.status_code}")
+        for line in reversed(r.text.strip().split("\n")[1:]):
+            cols = line.strip().split(",")
+            if len(cols) == 2 and cols[1] not in (".", "", "nan"):
+                try:
+                    v = float(cols[1])
+                    if v > 0:
+                        return v
+                except ValueError:
+                    pass
+        raise ValueError(f"{series_id} 유효값 없음")
+
+    # ── ① CAPE (Shiller PE) ─────────────────────────────────────────────
+    # 학술 근거: Campbell & Shiller (1988), Shiller (2000)
+    # 공식: S&P500 현재 가격 ÷ 최근 10년 실질 평균 EPS
+    cape_val = None
+    for attempt in range(3):
+        try:
+            cape_val = _get_fred_last("CAPE10")
+            break
+        except Exception as e:
+            print(f"  CAPE FRED 시도 {attempt+1}/3: {e}")
+            if attempt < 2:
+                time.sleep(20)
+
+    # 폴백: multpl.com 스크래핑
+    if cape_val is None:
+        try:
+            import re as _re
+            r = requests.get("https://www.multpl.com/shiller-pe", headers=hdrs, timeout=15)
+            if r.ok:
+                m = _re.search(r'id=["\']current-value["\'][^>]*>\s*([\d.]+)', r.text)
+                if not m:
+                    m = _re.search(r'class=["\']current["\'][^>]*>\s*([\d.]+)', r.text)
+                if m:
+                    cape_val = float(m.group(1))
+        except Exception as e:
+            print(f"  CAPE multpl 실패: {e}")
+
+    if cape_val is not None:
+        if cape_val < 15:     c_ico, c_lbl = "🟢", "저평가"
+        elif cape_val < 25:   c_ico, c_lbl = "✅", "적정"
+        elif cape_val < 35:   c_ico, c_lbl = "⚠️", "고평가"
+        else:                 c_ico, c_lbl = "🔴", "극도 고평가 (닷컴버블 수준)"
+        msg_parts.append(
+            f"📐 CAPE (Shiller PE)  [Campbell &amp; Shiller 1988]\n"
+            f"  현재: <b>{cape_val:.1f}</b>  역사평균: 17  {c_ico} {c_lbl}\n"
+            f"  10년 기대수익률↓ | CAPE 1단위↑ = 미래수익률 약 0.5%↓"
+        )
+    else:
+        msg_parts.append("📐 CAPE (Shiller PE): 데이터 일시 불가")
+
+    # ── ② 버핏 지표 (시총/GDP) ──────────────────────────────────────────
+    # 학술 근거: Buffett (2001, Fortune), Tobin Q 이론 (Tobin 1969)
+    # 공식: Wilshire5000 시총(십억달러) ÷ GDP(십억달러) × 100
+    will_val, gdp_val = None, None
+    for attempt in range(3):
+        try:
+            will_val = _get_fred_last("WILL5000PR")
+            break
+        except Exception as e:
+            print(f"  버핏 Wilshire 시도 {attempt+1}/3: {e}")
+            if attempt < 2:
+                time.sleep(20)
+    for attempt in range(3):
+        try:
+            gdp_val = _get_fred_last("GDP")
+            break
+        except Exception as e:
+            print(f"  버핏 GDP 시도 {attempt+1}/3: {e}")
+            if attempt < 2:
+                time.sleep(20)
+
+    if will_val is not None and gdp_val is not None:
+        buf_pct = (will_val / gdp_val) * 100
+        if buf_pct < 75:     b_ico, b_lbl = "🟢", "저평가  역사적 강세장 시작 구간"
+        elif buf_pct < 100:  b_ico, b_lbl = "✅", "적정"
+        elif buf_pct < 125:  b_ico, b_lbl = "⚠️", "다소 고평가"
+        elif buf_pct < 150:  b_ico, b_lbl = "🔴", "고평가"
+        else:                b_ico, b_lbl = "🚨", "극도 고평가  버핏 현금 보유 선호 구간"
+        msg_parts.append(
+            f"📊 버핏지표 (시총/GDP)  [Buffett 2001]\n"
+            f"  현재: <b>{buf_pct:.0f}%</b>  적정: 75~100%  {b_ico} {b_lbl}"
+        )
+    else:
+        msg_parts.append("📊 버핏지표 (시총/GDP): 데이터 일시 불가")
+
+    return ("💎 <b>밸류에이션 지표</b>\n"
+            "  과거 평균 대비 주가 수준 판단 (장기 투자 기준)\n\n" +
+            "\n\n".join(msg_parts))
 
 
 def _fetch_tga_records() -> list:
@@ -628,6 +730,204 @@ def _fetch_tga_records() -> list:
     return []
 
 
+def check_leading_indicators() -> str:
+    print("  [신규] 경기선행지수 분석 중...", flush=True)
+
+    FRED_HDRS = {"User-Agent": "Mozilla/5.0"}
+
+    def _fred_csv(series_id: str, rows: int = 100) -> list:
+        """FRED CSV에서 최신 rows개 유효 행을 [(date_str, float), ...] 형태로 반환."""
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        for attempt in range(3):
+            try:
+                r = requests.get(url, headers=FRED_HDRS, timeout=20)
+                if not r.ok:
+                    raise ValueError(f"HTTP {r.status_code}")
+                raw_lines = [l for l in r.text.strip().split("\n") if l.strip()][1:]  # 헤더 제거
+                result = []
+                for line in raw_lines:
+                    parts = line.strip().split(",")
+                    if len(parts) >= 2 and parts[1].strip() not in (".", "", "nan"):
+                        try:
+                            result.append((parts[0].strip(), float(parts[1].strip())))
+                        except ValueError:
+                            pass
+                if result:
+                    return result[-rows:]
+            except Exception as e:
+                print(f"  FRED {series_id} 시도 {attempt+1}/3: {e}")
+                if attempt < 2:
+                    time.sleep(10)
+        return []
+
+    parts = []
+
+    # ── 1. ISM 제조업 PMI (NAPM) ──────────────────────────────────────
+    try:
+        napm = _fred_csv("NAPM", rows=2)
+        if len(napm) >= 1:
+            val = napm[-1][1]
+            prev = napm[-2][1] if len(napm) >= 2 else None
+            if val < 45:    pmi_emoji, pmi_label = "🔴", "강한 수축 (침체 가능성)"
+            elif val < 50:  pmi_emoji, pmi_label = "🟡", "수축 국면"
+            elif val <= 55: pmi_emoji, pmi_label = "🟢", "완만한 확장"
+            else:           pmi_emoji, pmi_label = "🚀", "강한 확장"
+            prev_str = f"  전월: {prev:.1f}" if prev is not None else ""
+            parts.append(
+                f"🏭 ISM 제조업 PMI  [Stock & Watson 2003]\n"
+                f"  현재: <b>{val:.1f}</b>{prev_str}  {pmi_emoji} {pmi_label}\n"
+                f"  50선 = 확장/수축 경계 | 주가에 2~6개월 선행"
+            )
+        else:
+            parts.append("🏭 ISM 제조업 PMI: 일시 불가")
+    except Exception as e:
+        parts.append(f"🏭 ISM 제조업 PMI: 일시 불가 ({e})")
+
+    # ── 2. 신규 실업수당 4주 이동평균 (IC4WSA) ────────────────────────
+    try:
+        ic4w = _fred_csv("IC4WSA", rows=8)
+        if len(ic4w) >= 1:
+            val_k = ic4w[-1][1]   # 천 명(K) 단위
+            prev4_k = ic4w[-5][1] if len(ic4w) >= 5 else None
+            if val_k < 225:   uc_emoji, uc_label = "🟢", "노동시장 강함"
+            elif val_k < 300: uc_emoji, uc_label = "⚪", "정상"
+            elif val_k < 400: uc_emoji, uc_label = "🟡", "악화 경고"
+            else:             uc_emoji, uc_label = "🔴", "침체 신호"
+            prev_str = f"  4주전: {prev4_k:.0f}K" if prev4_k is not None else ""
+            parts.append(
+                f"👷 실업청구 4주평균  [DOL 주간발표]\n"
+                f"  현재: <b>{val_k:.0f}K</b>{prev_str}  {uc_emoji} {uc_label}\n"
+                f"  400K↑ = 침체 신호 | 225K↓ = 노동시장 강함"
+            )
+        else:
+            parts.append("👷 실업청구 4주평균: 일시 불가")
+    except Exception as e:
+        parts.append(f"👷 실업청구 4주평균: 일시 불가 ({e})")
+
+    # ── 3. 10년-2년 국채 금리차 (T10Y2Y) ──────────────────────────────
+    try:
+        t10y2y = _fred_csv("T10Y2Y", rows=60)
+        if len(t10y2y) >= 1:
+            val = t10y2y[-1][1]
+            # 약 1개월 전 (~22 거래일)
+            prev1m = t10y2y[-22][1] if len(t10y2y) >= 22 else (t10y2y[0][1] if t10y2y else None)
+            if val < -0.5:  ys_emoji, ys_label = "🔴", "강한 역전 (침체 경보)"
+            elif val < 0:   ys_emoji, ys_label = "🟡", "역전 (주의)"
+            elif val <= 1:  ys_emoji, ys_label = "⚪", "정상화 진행 중"
+            else:           ys_emoji, ys_label = "🟢", "정상 (경기 확장)"
+            val_sign = "+" if val >= 0 else ""
+            if prev1m is not None:
+                prev1m_sign = "+" if prev1m >= 0 else ""
+                prev_str = f"  1달전: {prev1m_sign}{prev1m:.2f}%p"
+            else:
+                prev_str = ""
+            parts.append(
+                f"📈 10Y-2Y 금리차  [Estrella & Mishkin 1998]\n"
+                f"  현재: <b>{val_sign}{val:.2f}%p</b>{prev_str}  {ys_emoji} {ys_label}\n"
+                f"  역전시 12~18개월 후 침체 예측 (역사적 적중률 ~90%)"
+            )
+        else:
+            parts.append("📈 10Y-2Y 금리차: 일시 불가")
+    except Exception as e:
+        parts.append(f"📈 10Y-2Y 금리차: 일시 불가 ({e})")
+
+    return "📡 <b>경기선행지수</b>  경기침체 조기경보 시스템\n\n" + "\n\n".join(parts)
+
+
+def check_sentiment_advanced() -> str:
+    print("  [신규] 투자심리 심화 분석 중...", flush=True)
+    parts = []
+
+    # ── ① CBOE 주식 풋/콜 비율 ──────────────────────────────────────
+    # Pan & Poteshman (2006), Bollen & Whaley (2004)
+    try:
+        hdrs = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.cboe.com/"}
+        url = "https://cdn.cboe.com/api/global/us_indices/daily_prices/PC_History.csv"
+        r = requests.get(url, headers=hdrs, timeout=15)
+        pc_series = None
+        eq_available = False
+        if r.ok:
+            from io import StringIO
+            df_pc = pd.read_csv(StringIO(r.text))
+            df_pc.columns = df_pc.columns.str.strip()
+            if "EQUITY_PUT" in df_pc.columns and "EQUITY_CALL" in df_pc.columns:
+                mask = df_pc["EQUITY_CALL"].notna() & (pd.to_numeric(df_pc["EQUITY_CALL"], errors="coerce") != 0)
+                df_pc = df_pc[mask].copy()
+                df_pc["eq_pc"] = pd.to_numeric(df_pc["EQUITY_PUT"], errors="coerce") / pd.to_numeric(df_pc["EQUITY_CALL"], errors="coerce")
+                pc_series = df_pc["eq_pc"].dropna()
+                eq_available = True
+            elif "PUT" in df_pc.columns and "CALL" in df_pc.columns:
+                mask = df_pc["CALL"].notna() & (pd.to_numeric(df_pc["CALL"], errors="coerce") != 0)
+                df_pc = df_pc[mask].copy()
+                df_pc["total_pc"] = pd.to_numeric(df_pc["PUT"], errors="coerce") / pd.to_numeric(df_pc["CALL"], errors="coerce")
+                pc_series = df_pc["total_pc"].dropna()
+
+        if pc_series is not None and len(pc_series) >= 1:
+            pc_now = float(pc_series.iloc[-1])
+            pc_ma10 = float(pc_series.iloc[-10:].mean()) if len(pc_series) >= 10 else pc_now
+            label = "주식" if eq_available else "전체"
+            if pc_now < 0.5:    pc_emoji, pc_sig = "🤑", "극도 낙관 (과열 주의)"
+            elif pc_now < 0.7:  pc_emoji, pc_sig = "🟢", "낙관"
+            elif pc_now < 0.9:  pc_emoji, pc_sig = "⚪", "중립"
+            elif pc_now < 1.1:  pc_emoji, pc_sig = "🟡", "비관적"
+            else:               pc_emoji, pc_sig = "🔴", "극도 비관 (역발상 매수)"
+            parts.append(
+                f"📊 CBOE {label} 풋/콜비율  [Pan & Poteshman 2006]\n"
+                f"  현재: <b>{pc_now:.2f}</b>  10일평균: {pc_ma10:.2f}  {pc_emoji} {pc_sig}\n"
+                f"  0.5↓=과열주의 | 1.1↑=역발상매수 기회"
+            )
+        else:
+            parts.append("📊 CBOE 풋/콜비율: 데이터 일시 불가")
+    except Exception as e:
+        parts.append(f"📊 CBOE 풋/콜비율: 오류 ({e})")
+
+    # ── ② 스마트머니 플로우 지수 ─────────────────────────────────────
+    # Sias & Starks (1997), Brown & Cliff (2004)
+    try:
+        spy_raw = _yf_download("SPY", period="3mo", auto_adjust=False)
+        if spy_raw is not None:
+            if isinstance(spy_raw.columns, pd.MultiIndex):
+                open_s  = spy_raw["Open"].squeeze()
+                close_s = spy_raw["Close"].squeeze()
+            else:
+                open_s  = spy_raw["Open"]
+                close_s = spy_raw["Close"]
+            open_s  = pd.Series(open_s.values,  index=open_s.index,  dtype=float).dropna()
+            close_s = pd.Series(close_s.values, index=close_s.index, dtype=float).dropna()
+            idx = open_s.index.intersection(close_s.index)
+            open_s, close_s = open_s.loc[idx], close_s.loc[idx]
+            prev_close = close_s.shift(1)
+            # 장 시작 개인 반응: (Open - prev_Close) / prev_Close
+            open_chg  = (open_s - prev_close) / prev_close.replace(0, np.nan)
+            # 장 마감 기관 판단: (Close - Open) / Open
+            close_chg = (close_s - open_s) / open_s.replace(0, np.nan)
+            smi_daily = close_chg - open_chg
+            smi_cum = smi_daily.dropna().cumsum()
+            if len(smi_cum) >= 21:
+                smi_last20 = smi_cum.iloc[-20:]
+                std20 = float(smi_last20.std(ddof=1))
+                z = (float(smi_cum.iloc[-1]) - float(smi_last20.mean())) / (std20 if std20 != 0 else 1)
+                if z < -2:      smi_emoji, smi_sig = "🔴", "스마트머니 대규모 이탈 (하락 경고)"
+                elif z < -1:    smi_emoji, smi_sig = "🟡", "스마트머니 소폭 이탈"
+                elif z <= 1:    smi_emoji, smi_sig = "⚪", "중립"
+                elif z <= 2:    smi_emoji, smi_sig = "🟢", "스마트머니 유입"
+                else:           smi_emoji, smi_sig = "🚀", "스마트머니 대규모 유입 (강세 신호)"
+                sign = "+" if z >= 0 else ""
+                parts.append(
+                    f"💼 스마트머니 플로우  [Sias & Starks 1997]\n"
+                    f"  Z-score: <b>{sign}{z:.1f}</b>  {smi_emoji} {smi_sig}\n"
+                    f"  장마감 강세=기관 매집 | 장초 강세=개인 감정적반응"
+                )
+            else:
+                parts.append("💼 스마트머니 플로우: 데이터 부족")
+        else:
+            parts.append("💼 스마트머니 플로우: 데이터 일시 불가")
+    except Exception as e:
+        parts.append(f"💼 스마트머니 플로우: 오류 ({e})")
+
+    return "🧠 <b>투자심리 심화</b>  기관 vs 개인 포지셔닝\n\n" + "\n\n".join(parts)
+
+
 def _is_trading_day() -> bool:
     # FORCE_RUN=true 이면 주말/공휴일도 강제 발송
     if os.environ.get("FORCE_RUN", "false").lower() == "true":
@@ -657,11 +957,11 @@ def main():
 
     header = (f"📋 <b>아침주식</b>\n🕐 {now} (KST)\n{'─'*26}\n"
               f"① 매크로  ② 공포탐욕  ③ BLOOD\n④ 카나리아  ⑤ Heat  ⑥ 섹터\n"
-              f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  ⑪ TGA잔고  🇰🇷 KR종목선정")
+              f"⑦ 코폭  ⑧ ZBT  ⑨ RS+거래대금\n⑩ 꼬리리스크  ⑪ TGA잔고  ⑫ 밸류에이션\n⑬ 선행지수  ⑭ 투자심리  🇰🇷 KR종목선정")
 
     sections = [check_macro, check_fear_greed, check_blood, check_canary, check_heat,
                 check_sector_rotation, check_coppock, check_breadth, check_momentum_stocks,
-                check_tail_risk, check_tga, check_kr_screening]
+                check_tail_risk, check_tga, check_valuation, check_leading_indicators, check_sentiment_advanced, check_kr_screening]
 
     send_telegram(header)
     time.sleep(0.3)
