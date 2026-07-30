@@ -610,16 +610,27 @@ def check_valuation() -> str:
                 time.sleep(20)
 
     # 폴백: multpl.com 스크래핑
+    # HTML 구조: class="currentTitle">Shiller PE Ratio</span>:</b>\n{값}
     if cape_val is None:
         try:
             import re as _re
             r = requests.get("https://www.multpl.com/shiller-pe", headers=hdrs, timeout=15)
             if r.ok:
-                m = _re.search(r'id=["\']current-value["\'][^>]*>\s*([\d.]+)', r.text)
+                # 1순위: currentTitle 패턴 (실제 HTML 구조 기반)
+                m = _re.search(r'class=["\']currentTitle["\'][^<]*</span>[^<]*</b>\s*([\d.]+)', r.text)
                 if not m:
+                    # 2순위: id=current-value
+                    m = _re.search(r'id=["\']current-value["\'][^>]*>\s*([\d.]+)', r.text)
+                if not m:
+                    # 3순위: class=current (태그 내 직접 숫자)
                     m = _re.search(r'class=["\']current["\'][^>]*>\s*([\d.]+)', r.text)
+                if not m:
+                    # 4순위: </b> 이후 첫 번째 30~50 범위 숫자 (역사적 CAPE 범위)
+                    m = _re.search(r'</b>\s*\n\s*((?:[1-4][0-9]|[5-9][0-9])\.[0-9]{1,2})\s*\n', r.text)
                 if m:
                     cape_val = float(m.group(1))
+                else:
+                    print(f"  CAPE multpl 파싱 실패: 알려진 패턴 없음")
         except Exception as e:
             print(f"  CAPE multpl 실패: {e}")
 
@@ -639,10 +650,14 @@ def check_valuation() -> str:
     # ── ② 버핏 지표 (시총/GDP) ──────────────────────────────────────────
     # 학술 근거: Buffett (2001, Fortune), Tobin Q 이론 (Tobin 1969)
     # 공식: Wilshire5000 시총(십억달러) ÷ GDP(십억달러) × 100
+    # 주의: WILL5000PR은 가격지수(~15,000)로 달러 단위가 아님 → 사용 금지
+    #       WILL5000IND는 시가총액 근사값(~48,000십억달러 수준) → 올바른 버핏지표용
     will_val, gdp_val = None, None
     for attempt in range(3):
         try:
-            will_val = _get_fred_last("WILL5000PR")
+            # WILL5000IND: Wilshire 5000 Full Cap Price Index (시총 근사, 십억달러 수준)
+            # WILL5000PR(가격지수)은 ~15,000으로 GDP 대비 54% → 저평가 오표시됨
+            will_val = _get_fred_last("WILL5000IND")
             break
         except Exception as e:
             print(f"  버핏 Wilshire 시도 {attempt+1}/3: {e}")
@@ -841,12 +856,28 @@ def check_sentiment_advanced() -> str:
     # ── ① CBOE 주식 풋/콜 비율 ──────────────────────────────────────
     # Pan & Poteshman (2006), Bollen & Whaley (2004)
     try:
-        hdrs = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.cboe.com/"}
-        url = "https://cdn.cboe.com/api/global/us_indices/daily_prices/PC_History.csv"
-        r = requests.get(url, headers=hdrs, timeout=15)
+        _cboe_hdrs = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/csv,application/csv,text/plain,*/*",
+            "Referer": "https://www.cboe.com/us/options/market_statistics/",
+        }
+        # URL 후보 순서대로 시도 (CDN 403 시 레거시 URL로 폴백)
+        _cboe_urls = [
+            "https://cdn.cboe.com/api/global/us_indices/daily_prices/PC_History.csv",
+            "https://cdn.cboe.com/data/us/options/market_statistics/daily_pc_ratio.csv",
+        ]
+        r = None
+        for _cboe_url in _cboe_urls:
+            try:
+                _resp = requests.get(_cboe_url, headers=_cboe_hdrs, timeout=15)
+                if _resp.ok and not _resp.text.strip().startswith("<"):
+                    r = _resp
+                    break
+            except Exception:
+                continue
         pc_series = None
         eq_available = False
-        if r.ok:
+        if r is not None and r.ok:
             from io import StringIO
             df_pc = pd.read_csv(StringIO(r.text))
             df_pc.columns = df_pc.columns.str.strip()
