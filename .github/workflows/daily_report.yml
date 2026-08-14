@@ -1,8 +1,9 @@
 name: 매일 오전 7시 시장 리포트
 
 on:
-  schedule:
-    - cron: '0 22 * * *'   # KST 07:00 = UTC 22:00 (전날)
+  # schedule 비활성화 — 07:10 아침브리핑 봇으로 통합됨 (morning-briefing 레포)
+  # schedule:
+  #   - cron: '0 22 * * *'   # KST 07:00 = UTC 22:00 (전날)
   workflow_dispatch:
     inputs:
       force_run:
