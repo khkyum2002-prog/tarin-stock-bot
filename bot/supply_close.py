@@ -86,8 +86,13 @@ def _fetch_frgn(code: str) -> list[dict]:
                         rate = float(c[8].replace("%", "").strip())
                     except (ValueError, AttributeError):
                         continue
+                    try:
+                        close = int(c[1].replace(",", ""))
+                    except ValueError:
+                        continue
                     rows.append({
                         "date": c[0],
+                        "close": close,
                         "inst": _parse_supply_int(c[5]),
                         "forgn": _parse_supply_int(c[6]),
                         "held": held,
@@ -173,6 +178,10 @@ def _oscillator(ticker: str) -> dict | None:
         "trend": trend,
         "emoji": emoji,
         "rank": rank,
+        # 차트용 시계열 (엑셀 수급오실레이터 시트의 G열=시가총액, H열=오실)
+        "dates": [r["date"] for r in rows],
+        "mktcap": [r["close"] * shares for r in rows],
+        "osc_series": osc,
     }
 
 
@@ -181,12 +190,123 @@ def _bp(v: float) -> str:
     return f"{v * 10000:+.2f}"
 
 
-def build_message() -> str:
-    tickers = list(KR_STOCKS.keys())
-    results = []
+def send_photo(png: bytes, caption: str = "", retries: int = 3) -> bool:
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption[:1000], "parse_mode": "HTML"}
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.post(url, data=data,
+                                 files={"photo": ("chart.png", png, "image/png")},
+                                 timeout=60)
+            if resp.ok:
+                return True
+            print(f"사진 전송 오류(시도{attempt}): {resp.text[:200]}")
+        except Exception as e:
+            print(f"사진 전송 실패(시도{attempt}): {e}")
+        if attempt < retries:
+            time.sleep(5)
+    return False
 
+
+def _setup_font() -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import font_manager as fm
+    have = {f.name for f in fm.fontManager.ttflist}
+    for cand in ("NanumGothic", "NanumBarunGothic", "Noto Sans CJK KR",
+                 "Noto Sans KR", "Malgun Gothic", "AppleGothic"):
+        if cand in have:
+            matplotlib.rcParams["font.family"] = cand
+            break
+    else:
+        print("  [경고] 한글 폰트 없음 — 라벨이 깨질 수 있음")
+    matplotlib.rcParams["axes.unicode_minus"] = False
+
+
+def _chart_single(r: dict) -> bytes:
+    """엑셀 수급오실레이터 차트와 동일 구성: 시가총액(좌축) + 수급오실레이터(우축) 이중축 선그래프."""
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+
+    n = len(r["dates"])
+    x = list(range(n))
+    osc_bp = [v * 10000 for v in r["osc_series"]]
+
+    fig, ax1 = plt.subplots(figsize=(9, 4.2))
+    ax1.plot(x, [v / 1e12 for v in r["mktcap"]], color="#1F4E79", lw=1.4)
+    ax1.set_ylabel("시가총액 (조원)", color="#1F4E79", fontsize=9)
+    ax1.tick_params(axis="y", labelcolor="#1F4E79", labelsize=8)
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, osc_bp, color="#FF0000", lw=1.4)
+    ax2.axhline(0, color="gray", lw=0.9, ls="--")
+    ax2.set_ylabel("수급오실레이터 (bp)", color="#FF0000", fontsize=9)
+    ax2.tick_params(axis="y", labelcolor="#FF0000", labelsize=8)
+
+    step = max(1, n // 8)
+    ax1.set_xticks(x[::step])
+    ax1.set_xticklabels([r["dates"][i][5:] for i in x[::step]], fontsize=8, rotation=45)
+    # 이모지는 한글 폰트에 글리프가 없어 두부로 깨지므로 차트에는 쓰지 않는다
+    ax1.set_title(f"{r['name']}  수급오실레이터  [{r['trend']}]  ({_bp(r['osc'])}bp)",
+                  fontsize=11, color=("#C00000" if r["osc"] < 0 else "#1F4E79"))
+    ax1.grid(alpha=0.25, lw=0.5)
+    fig.tight_layout()
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=110)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _chart_grid(results: list[dict]) -> bytes:
+    """전 종목을 한 장에. 각 칸은 오실(적색)과 시가총액(회색, 정규화)을 겹쳐 그린다."""
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+
+    n = len(results)
+    cols = 5
+    rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3.0, rows * 1.9))
+    axes = axes.ravel() if n > 1 else [axes]
+
+    for ax, r in zip(axes, results):
+        osc_bp = [v * 10000 for v in r["osc_series"]]
+        x = list(range(len(osc_bp)))
+        mc = r["mktcap"]
+        lo, hi = min(mc), max(mc)
+        span = (hi - lo) or 1
+        olo, ohi = min(osc_bp), max(osc_bp)
+        ospan = (ohi - olo) or 1
+        # 시가총액을 오실 축 범위로 정규화해 겹쳐 그림
+        mc_scaled = [(v - lo) / span * ospan + olo for v in mc]
+        ax.plot(x, mc_scaled, color="#B0B0B0", lw=0.9)
+        ax.plot(x, osc_bp, color="#FF0000", lw=1.1)
+        ax.axhline(0, color="gray", lw=0.7, ls="--")
+        # NanumGothic에 bold 웨이트가 없어 굵기 대신 * 표시로 전환 종목을 구분한다
+        mark = "*" if r["trend"] in ("매수전환", "매도전환") else ""
+        ax.set_title(f"{mark}{r['name']}  {_bp(r['osc'])}", fontsize=8,
+                     color=("#C00000" if r["osc"] < 0 else "#1F4E79"))
+        ax.tick_params(labelsize=6)
+        ax.set_xticks([])
+
+    for ax in axes[n:]:
+        ax.axis("off")
+
+    fig.suptitle("수급오실레이터 (적색) vs 시가총액 (회색)  —  MACD(12,26,9), 단위 bp"
+                 "   ※ * 표시 = 0선 돌파(전환)",
+                 fontsize=11, y=0.997)
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=105)
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def collect() -> list[dict]:
+    results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-        futures = {ex.submit(_oscillator, t): t for t in tickers}
+        futures = {ex.submit(_oscillator, t): t for t in KR_STOCKS}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 r = fut.result()
@@ -194,6 +314,12 @@ def build_message() -> str:
                 r = None
             if r:
                 results.append(r)
+    results.sort(key=lambda r: (r["rank"], -r["osc"]))
+    return results
+
+
+def build_message(results: list[dict]) -> str:
+    tickers = list(KR_STOCKS.keys())
 
     if not results:
         return "📊 <b>수급 오실레이터</b>\n데이터 수집 실패 — 네이버 응답 없음"
@@ -206,8 +332,6 @@ def build_message() -> str:
               f"  🎯매수전환 🔥매수가속 🟢매수우위\n"
               f"  ⚠️매도전환 🟡매도우위 🔴매도가속\n"
               f"{'─' * 26}")
-
-    results.sort(key=lambda r: (r["rank"], -r["osc"]))
 
     groups: dict[str, list] = {}
     for r in results:
@@ -245,12 +369,33 @@ def main():
         print(f"[{now}] 오늘은 주말/공휴일 — 발송 건너뜀")
         sys.exit(0)
 
-    msg = build_message()
+    results = collect()
+    msg = build_message(results)
     print(msg.replace("<b>", "").replace("</b>", ""))
 
     if not send_telegram(msg):
         print("[FATAL] 텔레그램 발송 실패")
         sys.exit(1)
+
+    if not results:
+        return
+
+    # 차트: 전 종목 그리드 1장 + 전환 신호 종목만 개별 차트
+    try:
+        _setup_font()
+        if not send_photo(_chart_grid(results), "📈 전 종목 수급오실레이터"):
+            print("  그리드 차트 전송 실패")
+
+        signals = [r for r in results if r["trend"] in ("매수전환", "매도전환")]
+        for r in signals:
+            cap = f"{r['emoji']} <b>{r['name']}</b> {r['trend']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp"
+            if not send_photo(_chart_single(r), cap):
+                print(f"  {r['name']} 차트 전송 실패")
+            time.sleep(0.5)
+        print(f"  차트 발송: 그리드 1장 + 개별 {len(signals)}장")
+    except Exception as e:
+        print(f"  차트 생성 실패 (텍스트는 발송됨): {e}")
+
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 발송 완료")
 
 
