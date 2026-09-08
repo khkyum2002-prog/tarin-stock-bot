@@ -38,7 +38,8 @@ if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     sys.exit(1)
 
 PAGES = 5           # 네이버 수급 페이지 수 (페이지당 20일 → 최대 100일)
-MIN_DAYS = 40       # EMA26이 수렴하려면 최소 이 정도는 필요
+CUM_DAYS = 5        # 엑셀 입력이 "5일누적 순매수대금"
+MIN_DAYS = 45       # EMA26 수렴분 + 누적으로 잃는 앞쪽 4일
 A_FAST = 2 / 13     # 12일 EMA
 A_SLOW = 2 / 27     # 26일 EMA
 A_SIGNAL = 2 / 10   # 9일 시그널
@@ -143,7 +144,16 @@ def _oscillator(ticker: str) -> dict | None:
         return None
 
     rows = rows[::-1]  # 오래된 날짜부터 (EMA 진행 방향)
-    sigiwe = [(r["inst"] + r["forgn"]) / shares for r in rows]
+
+    # 엑셀 외인!C14 / 기관!C14 헤더가 "5일누적 ... 순매수대금(일간)" 이므로
+    # 오실레이터 입력은 일별이 아니라 5일 누적 순매수대금이다.
+    amount = [(r["inst"] + r["forgn"]) * r["close"] for r in rows]   # 일별 순매수대금(원)
+    dates, mktcap, sigiwe = [], [], []
+    for i in range(CUM_DAYS - 1, len(rows)):
+        mc = rows[i]["close"] * shares
+        dates.append(rows[i]["date"])
+        mktcap.append(mc)
+        sigiwe.append(sum(amount[i - CUM_DAYS + 1:i + 1]) / mc)
 
     ema12 = _ema(sigiwe, A_FAST)
     ema26 = _ema(sigiwe, A_SLOW)
@@ -179,8 +189,8 @@ def _oscillator(ticker: str) -> dict | None:
         "emoji": emoji,
         "rank": rank,
         # 차트용 시계열 (엑셀 수급오실레이터 시트의 G열=시가총액, H열=오실)
-        "dates": [r["date"] for r in rows],
-        "mktcap": [r["close"] * shares for r in rows],
+        "dates": dates,
+        "mktcap": mktcap,
         "osc_series": osc,
     }
 
@@ -272,16 +282,13 @@ def _chart_grid(results: list[dict]) -> bytes:
     for ax, r in zip(axes, results):
         osc_bp = [v * 10000 for v in r["osc_series"]]
         x = list(range(len(osc_bp)))
-        mc = r["mktcap"]
-        lo, hi = min(mc), max(mc)
-        span = (hi - lo) or 1
-        olo, ohi = min(osc_bp), max(osc_bp)
-        ospan = (ohi - olo) or 1
-        # 시가총액을 오실 축 범위로 정규화해 겹쳐 그림
-        mc_scaled = [(v - lo) / span * ospan + olo for v in mc]
-        ax.plot(x, mc_scaled, color="#B0B0B0", lw=0.9)
-        ax.plot(x, osc_bp, color="#FF0000", lw=1.1)
-        ax.axhline(0, color="gray", lw=0.7, ls="--")
+        # 엑셀과 동일하게 이중축으로 겹쳐 그린다 (각 계열이 자기 범위로 자동 스케일)
+        ax.plot(x, [v / 1e12 for v in r["mktcap"]], color="#8FAADC", lw=0.9)
+        ax.tick_params(axis="y", labelsize=5, colors="#4472C4")
+        ax2 = ax.twinx()
+        ax2.plot(x, osc_bp, color="#FF0000", lw=1.1)
+        ax2.axhline(0, color="gray", lw=0.7, ls="--")
+        ax2.tick_params(axis="y", labelsize=5, colors="#C00000")
         # NanumGothic에 bold 웨이트가 없어 굵기 대신 * 표시로 전환 종목을 구분한다
         mark = "*" if r["trend"] in ("매수전환", "매도전환") else ""
         ax.set_title(f"{mark}{r['name']}  {_bp(r['osc'])}", fontsize=8,
@@ -292,8 +299,8 @@ def _chart_grid(results: list[dict]) -> bytes:
     for ax in axes[n:]:
         ax.axis("off")
 
-    fig.suptitle("수급오실레이터 (적색) vs 시가총액 (회색)  —  MACD(12,26,9), 단위 bp"
-                 "   ※ * 표시 = 0선 돌파(전환)",
+    fig.suptitle("수급오실레이터 (적색, 우축 bp) vs 시가총액 (청색, 좌축 조원)"
+                 "  —  5일누적 순매수 ÷ 시총 → MACD(12,26,9)   ※ * = 0선 돌파(전환)",
                  fontsize=11, y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.985))
 
