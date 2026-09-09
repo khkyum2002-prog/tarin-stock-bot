@@ -1,20 +1,32 @@
 # -*- coding: utf-8 -*-
 """
 장마감 수급 오실레이터 — 텔레그램 발송
-평일 16:10 KST 실행 (장 마감 후 네이버 수급 데이터 반영 시점)
+평일 18:30 KST 실행 (16시대에는 투자자별 수급이 아직 잠정치라 확정 이후로 잡는다)
 
-계산식은 `외국인기관수급오실레이터 (700)(태린이아빠)(매일).xlsm`의 시트 수식을 그대로 이식했다.
+계산식과 판정조건 모두 `외국인기관수급오실레이터 (700)(태린이아빠)(매일).xlsm`에서 가져왔다.
 
-    시기외(t)   = (기관순매수(t) + 외인순매수(t)) / 시가총액(t)
+[계산]  원본은 FnGuide DataGuide 항목을 쓴다 (단위 KRW bil)
+    U510320 = 5일누적 기관 순매수대금        U530320 = 5일누적 외국인총합계 순매수대금
+    S102100 = 시가총액 (보통주만, 우선주 제외)
+
+    시기외(t)   = (U510320 + U530320) / S102100
     시기외12(t) = 시기외(t)*(2/13) + 시기외12(t-1)*(11/13)      # 12일 EMA
     시기외26(t) = 시기외(t)*(2/27) + 시기외26(t-1)*(25/27)      # 26일 EMA
     MACD(t)     = 시기외12(t) - 시기외26(t)
     시그널(t)   = MACD(t)*(2/10) + 시그널(t-1)*(8/10)           # 9일 EMA
     오실(t)     = MACD(t) - 시그널(t)                           # 최종 출력값
 
-시가총액 = 종가 x 상장주식수, 순매수금액 = 순매매량 x 종가 이므로 종가가 약분되어
-시기외(t) = 순매매량(t) / 상장주식수 로 계산한다. 상장주식수는 네이버 수급 페이지의
-외국인보유주수 / 외국인보유율로 역산한다(삼성전자 기준 네이버 공시값과 0.0001% 일치).
+[판정]  수급오실레이터 시트 L7:L12 + 조건부서식(cellIs lessThan $L$12)
+    P90/P75/AVG/P25/P10 = 오실 자기 이력 77일의 백분위·평균
+    현재값보다 작은 임계치 개수(0~5)로 구간을 정한다. 부호가 아니라 자기 이력 대비 위치다.
+
+[전략]  일관성 시트에 적힌 원본 방법론 — "높은 확률의 종목군에서 수급 빈집만 공략함"
+    RS가 강한 종목은 수급이 일시적으로 약해져도 재차 강해질 확률이 높으므로
+    오실이 하위 구간(빈집)일 때가 관심 대상이다. 높다고 좋은 게 아니다.
+
+FnGuide는 유료라 네이버 수급 페이지로 대체한다. 순매수대금은 (순매매량 x 종가)로,
+시가총액은 (종가 x 상장주식수)로 근사하며 상장주식수는 외국인보유주수/보유율로 역산한다.
+엑셀 내 FnGuide 실측값과 14종목 280표본 대조 결과 시총 오차 0.15% 이내, 시기외 평균오차 0.42bp.
 """
 
 import os
@@ -43,6 +55,17 @@ MIN_DAYS = 45       # EMA26 수렴분 + 누적으로 잃는 앞쪽 4일
 A_FAST = 2 / 13     # 12일 EMA
 A_SLOW = 2 / 27     # 26일 EMA
 A_SIGNAL = 2 / 10   # 9일 시그널
+PCT_WINDOW = 77     # 백분위 산출 기간 (엑셀 H8:H84 = 77일)
+
+# 현재값보다 작은 임계치 개수(P10·P25·평균·P75·P90 중) → 구간명
+BANDS = {
+    0: ("빈집", "🎯"),        # 하위 10% 이하 — 원본 전략의 공략 대상
+    1: ("빈집근접", "🔵"),    # P10 ~ P25
+    2: ("평균이하", "⚪"),
+    3: ("평균이상", "🟡"),
+    4: ("상위권", "🟠"),      # P75 ~ P90
+    5: ("과열", "🔴"),        # P90 초과
+}
 
 
 def send_telegram(message: str, retries: int = 3) -> bool:
@@ -122,6 +145,15 @@ def _shares_outstanding(rows: list[dict]) -> float | None:
     return best["held"] / (best["rate"] / 100)
 
 
+def _percentile(values: list[float], p: float) -> float:
+    """엑셀 PERCENTILE(=PERCENTILE.INC)과 동일: rank = p*(n-1), 선형보간.
+    엑셀 캐시값과 대조해 오차 0 확인."""
+    s = sorted(values)
+    k = p * (len(s) - 1)
+    f = int(k)
+    return s[f] + (k - f) * (s[f + 1] - s[f]) if f + 1 < len(s) else s[f]
+
+
 def _ema(series: list[float], alpha: float) -> list[float]:
     """엑셀과 동일: 첫 값을 시드로 두고 v*alpha + prev*(1-alpha)."""
     out = [series[0]]
@@ -163,19 +195,16 @@ def _oscillator(ticker: str) -> dict | None:
 
     now, prev = osc[-1], osc[-2]
 
-    # 0선 돌파가 최우선 신호, 그다음이 진행 방향
-    if now > 0 and prev <= 0:
-        trend, emoji, rank = "매수전환", "🎯", 0
-    elif now > 0 and now > prev:
-        trend, emoji, rank = "매수가속", "🔥", 1
-    elif now > 0:
-        trend, emoji, rank = "매수우위", "🟢", 2
-    elif now < 0 and prev >= 0:
-        trend, emoji, rank = "매도전환", "⚠️", 3
-    elif now < 0 and now < prev:
-        trend, emoji, rank = "매도가속", "🔴", 5
-    else:
-        trend, emoji, rank = "매도우위", "🟡", 4
+    # 판정: 수급오실레이터 시트 L7:L12 + 조건부서식(cellIs lessThan $L$12).
+    # 오실 자기 이력의 백분위 5개를 현재값과 비교해 구간을 정한다. 부호 기준이 아니다.
+    hist = osc[-PCT_WINDOW:]
+    th = [_percentile(hist, p) for p in (0.10, 0.25)]
+    th.append(sum(hist) / len(hist))                    # L9 = AVERAGE
+    th += [_percentile(hist, p) for p in (0.75, 0.90)]
+    rank = sum(1 for t in th if t < now)                # 강조되는 임계치 개수 0~5
+
+    # 일관성 시트: "높은 확률의 종목군에서 수급 빈집만 공략함" → 낮을수록 관심 대상
+    trend, emoji = BANDS[rank]
 
     return {
         "ticker": ticker,
@@ -290,7 +319,7 @@ def _chart_grid(results: list[dict]) -> bytes:
         ax2.axhline(0, color="gray", lw=0.7, ls="--")
         ax2.tick_params(axis="y", labelsize=5, colors="#C00000")
         # NanumGothic에 bold 웨이트가 없어 굵기 대신 * 표시로 전환 종목을 구분한다
-        mark = "*" if r["trend"] in ("매수전환", "매도전환") else ""
+        mark = "*" if r["trend"] in ("빈집", "빈집근접") else ""
         ax.set_title(f"{mark}{r['name']}  {_bp(r['osc'])}", fontsize=8,
                      color=("#C00000" if r["osc"] < 0 else "#1F4E79"))
         ax.tick_params(labelsize=6)
@@ -300,7 +329,7 @@ def _chart_grid(results: list[dict]) -> bytes:
         ax.axis("off")
 
     fig.suptitle("수급오실레이터 (적색, 우축 bp) vs 시가총액 (청색, 좌축 조원)"
-                 "  —  5일누적 순매수 ÷ 시총 → MACD(12,26,9)   ※ * = 0선 돌파(전환)",
+                 "  —  5일누적 순매수 ÷ 시총 → MACD(12,26,9)   ※ * = 수급 빈집(하위 25% 이하)",
                  fontsize=11, y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.985))
 
@@ -321,7 +350,8 @@ def collect() -> list[dict]:
                 r = None
             if r:
                 results.append(r)
-    results.sort(key=lambda r: (r["rank"], -r["osc"]))
+    # 구간 순(빈집 먼저), 구간 안에서는 오실 낮은 순 → 가장 깊은 빈집이 맨 위
+    results.sort(key=lambda r: (r["rank"], r["osc"]))
     return results
 
 
@@ -334,10 +364,11 @@ def build_message(results: list[dict]) -> str:
     kst = datetime.now(timezone.utc) + timedelta(hours=9)
     header = (f"📊 <b>수급 오실레이터</b>\n"
               f"🕐 {kst.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-              f"  외국인+기관 순매수 ÷ 시총 → MACD(12,26,9)\n"
-              f"  오실 = MACD − 시그널  (발행주식수 대비 bp)\n"
-              f"  🎯매수전환 🔥매수가속 🟢매수우위\n"
-              f"  ⚠️매도전환 🟡매도우위 🔴매도가속\n"
+              f"  5일누적 외국인+기관 순매수 ÷ 시총 → MACD(12,26,9)\n"
+              f"  오실 = MACD − 시그널  (시총 대비 bp)\n"
+              f"  자기 이력 {PCT_WINDOW}일 백분위 구간으로 판정\n"
+              f"  🎯빈집 🔵빈집근접 ⚪평균이하 🟡평균이상 🟠상위권 🔴과열\n"
+              f"  ※ 원본 전략은 RS 강한 종목의 <b>빈집</b>을 공략\n"
               f"{'─' * 26}")
 
     groups: dict[str, list] = {}
@@ -345,7 +376,7 @@ def build_message(results: list[dict]) -> str:
         groups.setdefault(r["trend"], []).append(r)
 
     body = []
-    for trend in ("매수전환", "매수가속", "매수우위", "매도전환", "매도우위", "매도가속"):
+    for trend, _ in (BANDS[i] for i in range(6)):
         rows = groups.get(trend)
         if not rows:
             continue
@@ -393,7 +424,7 @@ def main():
         if not send_photo(_chart_grid(results), "📈 전 종목 수급오실레이터"):
             print("  그리드 차트 전송 실패")
 
-        signals = [r for r in results if r["trend"] in ("매수전환", "매도전환")]
+        signals = [r for r in results if r["trend"] in ("빈집", "빈집근접")]
         for r in signals:
             cap = f"{r['emoji']} <b>{r['name']}</b> {r['trend']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp"
             if not send_photo(_chart_single(r), cap):
