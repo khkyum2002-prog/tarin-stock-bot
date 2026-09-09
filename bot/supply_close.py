@@ -35,6 +35,8 @@ import time
 import concurrent.futures
 from datetime import datetime, timedelta, timezone
 
+import json
+
 import requests
 import holidays
 from bs4 import BeautifulSoup as BS
@@ -56,6 +58,8 @@ A_FAST = 2 / 13     # 12일 EMA
 A_SLOW = 2 / 27     # 26일 EMA
 A_SIGNAL = 2 / 10   # 9일 시그널
 PCT_WINDOW = 77     # 백분위 산출 기간 (엑셀 H8:H84 = 77일)
+RS_DAYS = 66        # RS 기간 — kr_screening.py의 기존 정의와 동일
+RS_STRONG = 65      # RS 백분위 강세 기준 — kr_screening.py의 "강력" 기준과 동일
 
 # 현재값보다 작은 임계치 개수(P10·P25·평균·P75·P90 중) → 구간명
 BANDS = {
@@ -145,6 +149,40 @@ def _shares_outstanding(rows: list[dict]) -> float | None:
     return best["held"] / (best["rate"] / 100)
 
 
+def _kospi_return() -> float | None:
+    """KOSPI의 RS_DAYS 수익률. kr_screening.py가 ^KS11을 벤치마크로 쓰는 것과 같은 역할."""
+    url = ("https://api.finance.naver.com/siseJson.naver?symbol=KOSPI&requestType=1"
+           f"&startTime={(datetime.now() - timedelta(days=200)).strftime('%Y%m%d')}"
+           f"&endTime={datetime.now().strftime('%Y%m%d')}&timeframe=day")
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        rows = json.loads(r.text.replace("'", '"'))[1:]
+        closes = [float(x[4]) for x in rows if x[4]]
+        n = min(RS_DAYS, len(closes) - 1)
+        if n <= 0 or closes[-1 - n] <= 0:
+            return None
+        return closes[-1] / closes[-1 - n] - 1
+    except Exception as e:
+        print(f"  KOSPI 조회 실패: {e}")
+        return None
+
+
+def _rank_pct(values: dict) -> dict:
+    """pandas rank(pct=True)*100 과 동일 (동점은 평균 순위)."""
+    items = sorted(values.items(), key=lambda kv: kv[1])
+    n = len(items)
+    out, i = {}, 0
+    while i < n:
+        j = i
+        while j + 1 < n and items[j + 1][1] == items[i][1]:
+            j += 1
+        pct = ((i + j) / 2 + 1) / n * 100
+        for k in range(i, j + 1):
+            out[items[k][0]] = pct
+        i = j + 1
+    return out
+
+
 def _percentile(values: list[float], p: float) -> float:
     """엑셀 PERCENTILE(=PERCENTILE.INC)과 동일: rank = p*(n-1), 선형보간.
     엑셀 캐시값과 대조해 오차 0 확인."""
@@ -206,6 +244,11 @@ def _oscillator(ticker: str) -> dict | None:
     # 일관성 시트: "높은 확률의 종목군에서 수급 빈집만 공략함" → 낮을수록 관심 대상
     trend, emoji = BANDS[rank]
 
+    # RS용 수익률 (벤치마크 차감과 백분위 환산은 collect()에서)
+    closes = [r["close"] for r in rows]
+    n_rs = min(RS_DAYS, len(closes) - 1)
+    ret = closes[-1] / closes[-1 - n_rs] - 1 if n_rs > 0 and closes[-1 - n_rs] > 0 else 0.0
+
     return {
         "ticker": ticker,
         "name": KR_STOCKS[ticker],
@@ -214,6 +257,7 @@ def _oscillator(ticker: str) -> dict | None:
         "macd": macd[-1],
         "signal": signal[-1],
         "days": len(rows),
+        "ret": ret,
         "trend": trend,
         "emoji": emoji,
         "rank": rank,
@@ -319,7 +363,7 @@ def _chart_grid(results: list[dict]) -> bytes:
         ax2.axhline(0, color="gray", lw=0.7, ls="--")
         ax2.tick_params(axis="y", labelsize=5, colors="#C00000")
         # NanumGothic에 bold 웨이트가 없어 굵기 대신 * 표시로 전환 종목을 구분한다
-        mark = "*" if r["trend"] in ("빈집", "빈집근접") else ""
+        mark = "*" if r.get("target") else ""
         ax.set_title(f"{mark}{r['name']}  {_bp(r['osc'])}", fontsize=8,
                      color=("#C00000" if r["osc"] < 0 else "#1F4E79"))
         ax.tick_params(labelsize=6)
@@ -350,6 +394,14 @@ def collect() -> list[dict]:
                 r = None
             if r:
                 results.append(r)
+    # RS = 66일 초과수익률(종목 - KOSPI)의 유니버스 내 백분위 (kr_screening.py와 동일 정의)
+    bench = _kospi_return() or 0.0
+    rs_pct = _rank_pct({r["ticker"]: r["ret"] - bench for r in results})
+    for r in results:
+        r["rs"] = rs_pct.get(r["ticker"], 50.0)
+        # 원본 전략의 타깃: RS가 강한 종목 중의 수급 빈집
+        r["target"] = r["rank"] <= 1 and r["rs"] >= RS_STRONG
+
     # 구간 순(빈집 먼저), 구간 안에서는 오실 낮은 순 → 가장 깊은 빈집이 맨 위
     results.sort(key=lambda r: (r["rank"], r["osc"]))
     return results
@@ -368,7 +420,8 @@ def build_message(results: list[dict]) -> str:
               f"  오실 = MACD − 시그널  (시총 대비 bp)\n"
               f"  자기 이력 {PCT_WINDOW}일 백분위 구간으로 판정\n"
               f"  🎯빈집 🔵빈집근접 ⚪평균이하 🟡평균이상 🟠상위권 🔴과열\n"
-              f"  ※ 원본 전략은 RS 강한 종목의 <b>빈집</b>을 공략\n"
+              f"  RS = KOSPI 대비 {RS_DAYS}일 초과수익 백분위(0~100)\n"
+              f"  ⭐ = 빈집 + RS {RS_STRONG}↑ → 원본 전략의 공략 대상\n"
               f"{'─' * 26}")
 
     groups: dict[str, list] = {}
@@ -382,7 +435,9 @@ def build_message(results: list[dict]) -> str:
             continue
         body.append(f"\n{rows[0]['emoji']} <b>{trend}</b> ({len(rows)}종목)")
         for r in rows:
-            body.append(f"  {r['name']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp")
+            star = "⭐" if r.get("target") else "  "
+            body.append(f"{star}{r['name']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp"
+                        f"  RS {r.get('rs', 50):.0f}")
 
     missing = len(tickers) - len(results)
     footer = f"\n\n※ 데이터 부족/실패 {missing}종목" if missing else ""
@@ -424,9 +479,13 @@ def main():
         if not send_photo(_chart_grid(results), "📈 전 종목 수급오실레이터"):
             print("  그리드 차트 전송 실패")
 
-        signals = [r for r in results if r["trend"] in ("빈집", "빈집근접")]
+        # 전략 타깃(빈집 + RS강) 우선, 없으면 빈집 구간만이라도 보낸다
+        signals = [r for r in results if r.get("target")]
+        if not signals:
+            signals = [r for r in results if r["trend"] == "빈집"]
         for r in signals:
-            cap = f"{r['emoji']} <b>{r['name']}</b> {r['trend']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp"
+            cap = (f"{r['emoji']} <b>{r['name']}</b> {r['trend']}"
+                   f"  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp  RS {r.get('rs', 50):.0f}")
             if not send_photo(_chart_single(r), cap):
                 print(f"  {r['name']} 차트 전송 실패")
             time.sleep(0.5)
