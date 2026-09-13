@@ -24,9 +24,15 @@
     RS가 강한 종목은 수급이 일시적으로 약해져도 재차 강해질 확률이 높으므로
     오실이 하위 구간(빈집)일 때가 관심 대상이다. 높다고 좋은 게 아니다.
 
-FnGuide는 유료라 네이버 수급 페이지로 대체한다. 순매수대금은 (순매매량 x 종가)로,
-시가총액은 (종가 x 상장주식수)로 근사하며 상장주식수는 외국인보유주수/보유율로 역산한다.
+FnGuide는 유료라 네이버로 대체한다. 순매수대금은 (순매매량 x 종가)로,
+시가총액은 (종가 x 상장주식수)로 근사한다.
 엑셀 내 FnGuide 실측값과 14종목 280표본 대조 결과 시총 오차 0.15% 이내, 시기외 평균오차 0.42bp.
+
+[데이터 소스] 2026-09 네이버가 finance.naver.com을 SPA로 개편해 HTML 표 파싱이 죽었다
+(테이블 0개, EUC-KR→UTF-8). 모바일 증권 API로 전환:
+    m.stock.naver.com/api/stock/{code}/trend         일별 기관·외국인 순매매량 (10건씩, bizdate 커서)
+    m.stock.naver.com/api/stock/{code}/integration   시가총액 (한글 문자열, 예 "1,517조 1,093억")
+상장주식수 = 시가총액 / 종가 (삼성전자 검증 시 공시값과 오차 0.0000%)
 """
 
 import os
@@ -36,13 +42,19 @@ import concurrent.futures
 from datetime import datetime, timedelta, timezone
 
 import json
+import re
 
 import requests
 import holidays
-from bs4 import BeautifulSoup as BS
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kr_screening import KR_STOCKS, HDRS, _find_supply_table, _parse_supply_int
+from kr_screening import KR_STOCKS
+
+API_BASE = "https://m.stock.naver.com/api/stock"
+API_HDRS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Referer": "https://m.stock.naver.com/",
+}
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -90,63 +102,88 @@ def send_telegram(message: str, retries: int = 3) -> bool:
     return False
 
 
+def _int(s) -> int:
+    """'+3,332,528' / '-2,208,594' / '259,500' → int"""
+    try:
+        return int(str(s).replace(",", "").replace("+", "").strip())
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _api(code: str, path: str):
+    r = requests.get(f"{API_BASE}/{code}/{path}", headers=API_HDRS, timeout=15)
+    return r.json() if r.ok else None
+
+
 def _fetch_frgn(code: str) -> list[dict]:
-    """네이버 수급 페이지 파싱. 최신일이 앞. 컬럼: 날짜0 종가1 전일비2 등락률3 거래량4
-    기관순매매량5 외국인순매매량6 외국인보유주수7 외국인보유율8"""
-    rows = []
-    for pg in range(1, PAGES + 1):
-        for attempt in range(2):
-            try:
-                url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
-                r = requests.get(url, headers=HDRS, timeout=15)
-                if not r.ok:
-                    break
-                table = _find_supply_table(BS(r.content, "html.parser", from_encoding="euc-kr"))
-                if table is None:
-                    break
-                found = 0
-                for tr in table.find_all("tr"):
-                    c = [x.get_text(strip=True) for x in tr.find_all("td")]
-                    if len(c) < 9 or not c[0] or "." not in c[0]:
-                        continue
-                    try:
-                        held = int(c[7].replace(",", ""))
-                        rate = float(c[8].replace("%", "").strip())
-                    except (ValueError, AttributeError):
-                        continue
-                    try:
-                        close = int(c[1].replace(",", ""))
-                    except ValueError:
-                        continue
-                    rows.append({
-                        "date": c[0],
-                        "close": close,
-                        "inst": _parse_supply_int(c[5]),
-                        "forgn": _parse_supply_int(c[6]),
-                        "held": held,
-                        "rate": rate,
-                    })
-                    found += 1
-                if found == 0 and pg == 1 and attempt == 0:
-                    time.sleep(3)
-                    continue
-                break
-            except requests.RequestException:
-                if attempt == 0:
-                    time.sleep(3)
-                else:
-                    break
-        time.sleep(0.15)
+    """모바일 증권 API로 일별 수급 수집. 최신일이 앞.
+
+    2026-09 네이버가 finance.naver.com을 SPA로 개편하면서 기존 HTML 표 파싱이 죽었다
+    (테이블 0개, 인코딩도 EUC-KR→UTF-8). trend API는 한 번에 10건만 주므로
+    bizdate를 커서로 넘겨 과거로 거슬러 올라간다(해당 날짜 '이전' 10건을 반환)."""
+    rows, seen, cursor = [], set(), None
+    for _ in range(PAGES * 2 + 4):          # 10건씩 → 100일 확보에 여유분
+        path = "trend" + (f"?bizdate={cursor}" if cursor else "")
+        try:
+            batch = _api(code, path)
+        except requests.RequestException:
+            break
+        if not batch:
+            break
+        added = 0
+        for e in batch:
+            d = e.get("bizdate")
+            close = _int(e.get("closePrice"))
+            if not d or d in seen or close <= 0:
+                continue
+            seen.add(d)
+            rows.append({
+                "date": f"{d[:4]}.{d[4:6]}.{d[6:]}",
+                "close": close,
+                "inst": _int(e.get("organPureBuyQuant")),
+                "forgn": _int(e.get("foreignerPureBuyQuant")),
+            })
+            added += 1
+        if added == 0:
+            break
+        cursor = batch[-1].get("bizdate")   # 배치의 가장 오래된 날 → 다음 호출은 그 이전
+        if len(rows) >= PAGES * 20 or not cursor:
+            break
+        time.sleep(0.1)
     return rows
 
 
-def _shares_outstanding(rows: list[dict]) -> float | None:
-    """외국인보유주수 / 외국인보유율로 상장주식수 역산.
-    보유율이 낮으면 반올림 오차가 커지므로 가장 높은 보유율 행을 쓴다."""
-    best = max((r for r in rows if r["rate"] > 0), key=lambda r: r["rate"], default=None)
-    if best is None or best["rate"] < 0.5:
+def _won(s: str) -> float:
+    """'1,517조 1,093억' → 1517109300000000.0"""
+    t = str(s).replace(",", "").replace(" ", "")
+    total = 0.0
+    for unit, mul in (("조", 10 ** 12), ("억", 10 ** 8), ("만", 10 ** 4)):
+        m = re.search(rf"(\d+){unit}", t)
+        if m:
+            total += int(m.group(1)) * mul
+    if total == 0:
+        try:
+            total = float(re.sub(r"[^\d.]", "", t))
+        except ValueError:
+            return 0.0
+    return total
+
+
+def _shares_outstanding(code: str, latest_close: int) -> float | None:
+    """상장주식수 = 시가총액 / 종가.
+
+    개편된 사이트에는 외국인보유주수가 없어 기존 역산(보유주수/보유율)을 못 쓴다.
+    integration API의 시총 문자열을 파싱해 나눈다. 삼성전자로 검증 시 공시값과 오차 0.0000%."""
+    try:
+        d = _api(code, "integration")
+        mv = next((x["value"] for x in (d or {}).get("totalInfos", [])
+                   if x.get("code") == "marketValue"), None)
+    except requests.RequestException:
         return None
-    return best["held"] / (best["rate"] / 100)
+    if not mv or latest_close <= 0:
+        return None
+    won = _won(mv)
+    return won / latest_close if won > 0 else None
 
 
 def _kospi_return() -> float | None:
@@ -209,7 +246,7 @@ def _oscillator(ticker: str) -> dict | None:
     if len(rows) < MIN_DAYS:
         return None
 
-    shares = _shares_outstanding(rows)
+    shares = _shares_outstanding(code, rows[0]["close"])   # rows[0] = 최신 거래일
     if not shares:
         return None
 
@@ -463,6 +500,14 @@ def main():
         sys.exit(0)
 
     results = collect()
+
+    # 수집이 통째로 실패하면 워크플로도 실패로 남겨야 한다.
+    # 2026-09-10~11 네이버 개편으로 0종목이 수집됐는데 exit 0이라 success로 찍혀 이틀간 모르고 지나갔다.
+    if len(results) < len(KR_STOCKS) // 2:
+        send_telegram(f"🚨 <b>수급 오실레이터 수집 실패</b>\n"
+                      f"{len(results)}/{len(KR_STOCKS)}종목만 수집됨 — 데이터 소스 점검 필요")
+        print(f"[FATAL] 수집 {len(results)}/{len(KR_STOCKS)} — 실패 처리")
+        sys.exit(1)
     msg = build_message(results)
     print(msg.replace("<b>", "").replace("</b>", ""))
 
