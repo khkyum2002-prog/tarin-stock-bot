@@ -3,49 +3,73 @@
 삼성전자 빈집전환 감지 + Windows 팝업 알림
 조건: 40일 누적 기관+외국인 순매수 < 0 (빈집) AND 최근 5일 > 0 (전환)
 """
-import sys, os, subprocess, datetime, requests
-from bs4 import BeautifulSoup as BS
+import sys, os, subprocess, datetime, time, requests
 
 TARGET = "005930"
-HDRS = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
+# 2026-09 네이버가 finance.naver.com을 SPA로 개편해 HTML 표 파싱이 죽었다(테이블 0개).
+# 모바일 증권 API로 교체. trend는 10건씩 주므로 bizdate를 커서로 과거로 거슬러 올라간다.
+API = "https://m.stock.naver.com/api/stock/{code}/trend"
+HDRS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Referer": "https://m.stock.naver.com/",
+}
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "binzip_log.txt")
 
 
+def _int(s) -> int:
+    try:
+        return int(str(s).replace(",", "").replace("+", "").strip())
+    except (ValueError, AttributeError):
+        return 0
+
+
 def fetch_daily_supply(code: str, days: int = 40) -> list:
-    daily = []
-    for pg in range(1, 4):
-        if len(daily) >= days:
-            break
+    """일별 (기관+외국인) 순매수대금. 최신일이 앞."""
+    daily, seen, cursor = [], set(), None
+    for _ in range(days // 10 + 3):
+        url = API.format(code=code) + (f"?bizdate={cursor}" if cursor else "")
         try:
-            r = requests.get(
-                f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
-                headers=HDRS, timeout=15,
-            )
-            if r.status_code != 200:
+            r = requests.get(url, headers=HDRS, timeout=15)
+            if not r.ok:
                 break
-            soup = BS(r.content, "html.parser", from_encoding="euc-kr")
-            tables = soup.find_all("table")
-            if len(tables) < 4:
-                break
-            for row in tables[3].find_all("tr"):
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                    try:
-                        cp = int(cells[1].replace(",", ""))
-                        iq = int(cells[5].replace(",", "").replace("+", "") or "0")
-                        fq = int(cells[6].replace(",", "").replace("+", "") or "0")
-                        if cp > 0:
-                            daily.append((iq + fq) * cp)
-                            if len(daily) >= days:
-                                break
-                    except Exception:
-                        pass
+            batch = r.json()
         except Exception:
             break
+        if not batch:
+            break
+        added = 0
+        for e in batch:
+            d = e.get("bizdate")
+            cp = _int(e.get("closePrice"))
+            if not d or d in seen or cp <= 0:
+                continue
+            seen.add(d)
+            daily.append((_int(e.get("organPureBuyQuant")) + _int(e.get("foreignerPureBuyQuant"))) * cp)
+            added += 1
+            if len(daily) >= days:
+                return daily
+        if added == 0:
+            break
+        cursor = batch[-1].get("bizdate")
+        if not cursor:
+            break
+        time.sleep(0.1)
     return daily
 
 
+def gh_output(**kw):
+    """워크플로가 steps.check.outputs.* 로 읽는 값. 이걸 안 쓰면 메일 단계가 영영 실행되지 않는다."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        for k, v in kw.items():
+            f.write(f"{k}={v}\n")
+
+
 def windows_notify(title: str, msg: str):
+    if os.name != "nt":          # GitHub Actions(ubuntu)에서는 건너뛴다
+        return
     ps_code = f"""
 Add-Type -AssemblyName System.Windows.Forms
 $n = New-Object System.Windows.Forms.NotifyIcon
@@ -77,8 +101,9 @@ def main():
     daily = fetch_daily_supply(TARGET, days=40)
 
     if len(daily) < 5:
-        log("데이터 부족 -- 스킵")
-        sys.exit(0)
+        # 조용히 넘어가면 데이터 소스가 죽어도 워크플로가 계속 success로 찍힌다
+        log(f"데이터 수집 실패({len(daily)}일) -- 소스 점검 필요")
+        sys.exit(1)
 
     short5 = sum(daily[:5])
     long40 = sum(daily[:40]) if len(daily) >= 40 else sum(daily)
@@ -89,6 +114,9 @@ def main():
 
     is_empty  = long40 < 0
     is_inflow = short5 > 0
+
+    gh_output(binzip=str(is_empty and is_inflow).lower(),
+              short5=f"{short5_uk:+.1f}", long40=f"{long40_uk:+.1f}")
 
     if is_empty and is_inflow:
         log("!!! 빈집전환 신호 감지 !!!")
