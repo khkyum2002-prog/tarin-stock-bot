@@ -359,6 +359,62 @@ tab0, tab4, tab2, tab3, tab1, tab5 = st.tabs(["📊 대시보드", "🎯 종목 
 # ─────────────────────────────────────────────────────────────────────────────
 # 공통 유틸
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── 네이버 수급 수집 ────────────────────────────────────────────────────
+# 2026-09 네이버가 finance.naver.com을 SPA로 개편해 HTML 표 파싱이 죽었다
+# (status 200이지만 테이블 0개, 인코딩도 EUC-KR→UTF-8). 모바일 증권 API로 교체.
+_TREND_API = "https://m.stock.naver.com/api/stock/{code}/trend"
+_TREND_HDRS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Referer": "https://m.stock.naver.com/",
+}
+
+
+def _trend_int(s):
+    try:
+        return int(str(s).replace(",", "").replace("+", "").strip())
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _naver_trend(code, days=40):
+    """일별 수급. 최신일이 앞. [{date, close, inst, frgn}, ...]
+    trend는 한 번에 10건만 주므로 bizdate를 커서로 넘겨 과거로 거슬러 올라간다."""
+    import time as _t
+    rows, seen, cursor = [], set(), None
+    for _ in range(days // 10 + 3):
+        url = _TREND_API.format(code=code) + (f"?bizdate={cursor}" if cursor else "")
+        try:
+            r = requests.get(url, headers=_TREND_HDRS, timeout=15)
+            if not r.ok:
+                break
+            batch = r.json()
+        except Exception:
+            break
+        if not batch:
+            break
+        added = 0
+        for e in batch:
+            d = e.get("bizdate")
+            cp = _trend_int(e.get("closePrice"))
+            if not d or d in seen or cp <= 0:
+                continue
+            seen.add(d)
+            rows.append({"date": f"{d[:4]}.{d[4:6]}.{d[6:]}", "close": cp,
+                         "inst": _trend_int(e.get("organPureBuyQuant")),
+                         "frgn": _trend_int(e.get("foreignerPureBuyQuant"))})
+            added += 1
+            if len(rows) >= days:
+                return rows
+        if added == 0:
+            break
+        cursor = batch[-1].get("bizdate")
+        if not cursor:
+            break
+        _t.sleep(0.1)
+    return rows
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _dl(ticker, period="3y", start=None, end=None, retries=3):
     for i in range(retries):
@@ -1729,31 +1785,7 @@ def get_composite_score(top_n=30):
     def _fetch_supply(ticker):
         """40일치 기관+외국인 순매수 수집 → (short5, long40) 반환"""
         code = ticker.replace(".KS", "").replace(".KQ", "")
-        daily = []
-        try:
-            for pg in range(1, 3):
-                r = requests.get(
-                    f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
-                    headers=_hdrs, timeout=10)
-                if r.status_code != 200: break
-                soup = _BS(r.content, "html.parser", from_encoding="euc-kr")
-                tables = soup.find_all("table")
-                if len(tables) < 4: break
-                for row in tables[3].find_all("tr"):
-                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                        try:
-                            cp  = int(cells[1].replace(",", ""))
-                            iq  = int(cells[5].replace(",", "").replace("+", "") or "0")
-                            fq  = int(cells[6].replace(",", "").replace("+", "") or "0")
-                            if cp > 0:
-                                daily.append((iq + fq) * cp)   # 순매수대금 (음수=순매도)
-                                if len(daily) >= 40: break
-                        except Exception:
-                            pass
-                if len(daily) >= 40: break
-        except Exception:
-            pass
+        daily = [(r["inst"] + r["frgn"]) * r["close"] for r in _naver_trend(code, 40)]
         short5 = sum(daily[:5])  if len(daily) >= 5  else 0  # 최근 5일 (전환 감지)
         long40 = sum(daily[:40]) if daily else 0              # 40일 누적 (빈집 수준)
         return ticker, short5, long40
@@ -2251,29 +2283,10 @@ def get_stock_supply_osc(ticker, chart_days=60, agg_days=20):
         try: return int(s.replace(",","").replace("+",""))
         except: return 0
     try:
-        rows_data = []
-        pages_needed = (chart_days // 20) + 1
-        for pg in range(1, pages_needed + 1):
-            r = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}",
-                             headers=hdrs, timeout=12)
-            if r.status_code != 200: break
-            soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
-            tables = soup.find_all("table")
-            if len(tables) < 4: break
-            for row in tables[3].find_all("tr"):
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                # cells[5]=기관 순매매량, cells[6]=외국인 순매매량
-                if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                    try:
-                        close = _pn(cells[1])
-                        inst_qty = _pn(cells[5])   # 기관
-                        frgn_qty = _pn(cells[6])   # 외국인
-                        if close > 0:
-                            rows_data.append({"date":cells[0],"close":close,
-                                              "inst_qty":inst_qty,"inst_val":inst_qty*close,
-                                              "frgn_qty":frgn_qty,"frgn_val":frgn_qty*close})
-                    except: pass
-            if len(rows_data) >= chart_days: break
+        rows_data = [{"date": r["date"], "close": r["close"],
+                      "inst_qty": r["inst"], "inst_val": r["inst"] * r["close"],
+                      "frgn_qty": r["frgn"], "frgn_val": r["frgn"] * r["close"]}
+                     for r in _naver_trend(code, chart_days)]
         if not rows_data: return {"error":"데이터 없음"}
         df = pd.DataFrame(rows_data[:chart_days]).iloc[::-1].reset_index(drop=True)
         df["inst_bil"] = df["inst_val"] / 100_000_000
@@ -2320,29 +2333,10 @@ def get_kr_supply_auto(top_n=20, days=20):
         ticker, name = args
         code = ticker.replace(".KS","").replace(".KQ","")
         try:
-            rows_data = []
-            pages_needed = (CHART_DAYS // 20) + 1
-            for pg in range(1, pages_needed + 1):
-                url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
-                r = requests.get(url, headers=hdrs, timeout=12)
-                if r.status_code != 200: break
-                soup = BeautifulSoup(r.content, "html.parser", from_encoding="euc-kr")
-                tables = soup.find_all("table")
-                if len(tables) < 4: break
-                for row in tables[3].find_all("tr"):
-                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                    # cells[5]=기관 순매매량, cells[6]=외국인 순매매량
-                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                        try:
-                            close = _parse_num(cells[1])
-                            inst_qty = _parse_num(cells[5])  # 기관
-                            frgn_qty = _parse_num(cells[6])  # 외국인
-                            if close > 0:
-                                rows_data.append({"close": close, "date": cells[0],
-                                                  "inst_qty": inst_qty, "inst_val": inst_qty * close,
-                                                  "frgn_qty": frgn_qty, "frgn_val": frgn_qty * close})
-                        except: pass
-                if len(rows_data) >= CHART_DAYS: break
+            rows_data = [{"close": r["close"], "date": r["date"],
+                          "inst_qty": r["inst"], "inst_val": r["inst"] * r["close"],
+                          "frgn_qty": r["frgn"], "frgn_val": r["frgn"] * r["close"]}
+                         for r in _naver_trend(code, CHART_DAYS)]
 
             if not rows_data: return None
 

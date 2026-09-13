@@ -13,9 +13,12 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
-from bs4 import BeautifulSoup as BS
 
-HDRS = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
+TREND_API = "https://m.stock.naver.com/api/stock/{code}/trend"
+API_HDRS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Referer": "https://m.stock.naver.com/",
+}
 
 KR_STOCKS = {
     # ── 반도체 ──────────────────────────────────────────────────
@@ -111,76 +114,54 @@ def _parse_supply_int(s: str) -> int:
         return 0
 
 
-def _find_supply_table(soup):
-    """네이버 수급 페이지에서 날짜·종가 데이터가 있는 테이블을 동적으로 찾는다.
-    tables[3]을 우선 시도하고, 날짜 형식 행이 없으면 인접 테이블(2, 4, 5)도 탐색."""
-    tables = soup.find_all("table")
-    for idx in [3, 2, 4, 5]:
-        if idx >= len(tables):
-            continue
-        tbl = tables[idx]
-        for row in tbl.find_all("tr"):
-            cells = [c.get_text(strip=True) for c in row.find_all("td")]
-            # 날짜(YYYY.MM.DD) + 최소 7컬럼 행이면 해당 테이블 채택
-            if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                try:
-                    parts = cells[0].split(".")
-                    if len(parts) == 3 and all(p.isdigit() for p in parts):
-                        return tbl
-                except Exception:
-                    pass
-    return None
+
+def naver_trend(code: str, days: int = 40) -> list:
+    """모바일 증권 API로 일별 수급 수집. 최신일이 앞.
+    반환: [{date, close, inst, frgn}, ...]  (inst/frgn은 순매매 '수량')
+
+    2026-09 네이버가 finance.naver.com을 SPA로 개편해 HTML 표 파싱이 죽었다
+    (status 200이지만 테이블 0개, 인코딩도 EUC-KR→UTF-8).
+    trend는 한 번에 10건만 주므로 bizdate를 커서로 넘겨 과거로 거슬러 올라간다."""
+    rows, seen, cursor = [], set(), None
+    for _ in range(days // 10 + 3):
+        url = TREND_API.format(code=code) + (f"?bizdate={cursor}" if cursor else "")
+        try:
+            r = requests.get(url, headers=API_HDRS, timeout=15)
+            if not r.ok:
+                break
+            batch = r.json()
+        except Exception:
+            break
+        if not batch:
+            break
+        added = 0
+        for e in batch:
+            d = e.get("bizdate")
+            cp = _parse_supply_int(e.get("closePrice"))
+            if not d or d in seen or cp <= 0:
+                continue
+            seen.add(d)
+            rows.append({
+                "date": f"{d[:4]}.{d[4:6]}.{d[6:]}",
+                "close": cp,
+                "inst": _parse_supply_int(e.get("organPureBuyQuant")),
+                "frgn": _parse_supply_int(e.get("foreignerPureBuyQuant")),
+            })
+            added += 1
+            if len(rows) >= days:
+                return rows
+        if added == 0:
+            break
+        cursor = batch[-1].get("bizdate")
+        if not cursor:
+            break
+        time.sleep(0.1)
+    return rows
 
 
 def _naver_supply_single(code: str, days: int = 40) -> list:
-    daily = []
-    for pg in range(1, 5):
-        if len(daily) >= days:
-            break
-        for attempt in range(2):  # 페이지당 최대 2회 재시도
-            try:
-                url = f"https://finance.naver.com/item/frgn.naver?code={code}&page={pg}"
-                r = requests.get(url, headers=HDRS, timeout=15)
-                if not r.ok:
-                    break
-                soup = BS(r.content, "html.parser", from_encoding="euc-kr")
-                target_table = _find_supply_table(soup)
-                if target_table is None:
-                    # 테이블 구조 인식 불가 → 재시도 없이 다음 페이지로
-                    break
-                rows_found = 0
-                for row in target_table.find_all("tr"):
-                    cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                    # 날짜 포함 행: 최소 7컬럼 + 날짜에 "." 포함
-                    if len(cells) >= 7 and cells[0] and "." in cells[0]:
-                        try:
-                            price_str = cells[1].replace(",", "").strip()
-                            if not price_str or not price_str.replace("-", "").isdigit():
-                                continue
-                            cp = int(price_str)
-                            # 기관(5) + 외국인(6) 합산 순매수
-                            iq = _parse_supply_int(cells[5])
-                            fq = _parse_supply_int(cells[6])
-                            if cp > 0:
-                                daily.append((iq + fq) * cp / 1e8)
-                                rows_found += 1
-                                if len(daily) >= days:
-                                    break
-                        except Exception:
-                            continue
-                if rows_found == 0 and pg == 1:
-                    # 첫 페이지에서 유효 행이 0개면 재시도
-                    if attempt == 0:
-                        time.sleep(3)
-                        continue
-                break  # 성공 시 재시도 루프 탈출
-            except requests.RequestException:
-                if attempt == 0:
-                    time.sleep(3)
-                else:
-                    break
-        time.sleep(0.15)
-    return daily
+    """일별 (기관+외국인) 순매수대금, 단위 억원. 최신일이 앞."""
+    return [(r["inst"] + r["frgn"]) * r["close"] / 1e8 for r in naver_trend(code, days)]
 
 
 def _fetch_supply_worker(ticker: str) -> tuple:
