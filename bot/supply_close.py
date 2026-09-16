@@ -72,6 +72,7 @@ A_SIGNAL = 2 / 10   # 9일 시그널
 PCT_WINDOW = 77     # 백분위 산출 기간 (엑셀 H8:H84 = 77일)
 RS_DAYS = 66        # RS 기간 — kr_screening.py의 기존 정의와 동일
 RS_STRONG = 65      # RS 백분위 강세 기준 — kr_screening.py의 "강력" 기준과 동일
+MAX_CHARTS = 3      # 개별 차트 최대 장수 (그리드 1장은 별도)
 
 # 현재값보다 작은 임계치 개수(P10·P25·평균·P75·P90 중) → 구간명
 BANDS = {
@@ -524,10 +525,12 @@ def main():
         if not send_photo(_chart_grid(results), "📈 전 종목 수급오실레이터"):
             print("  그리드 차트 전송 실패")
 
-        # 전략 타깃(빈집 + RS강) 우선, 없으면 빈집 구간만이라도 보낸다
+        # 전략 타깃(빈집 + RS강) 우선, 없으면 빈집 구간만이라도 보낸다.
+        # 장수는 MAX_CHARTS로 묶는다 — 상한이 없으면 타깃이 많은 날 사진이 쏟아진다.
         signals = [r for r in results if r.get("target")]
         if not signals:
             signals = [r for r in results if r["trend"] == "빈집"]
+        signals = sorted(signals, key=lambda r: (r["rank"], r["osc"]))[:MAX_CHARTS]
         for r in signals:
             cap = (f"{r['emoji']} <b>{r['name']}</b> {r['trend']}"
                    f"  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp  RS {r.get('rs', 50):.0f}")
