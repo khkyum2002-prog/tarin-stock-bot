@@ -446,43 +446,51 @@ def collect() -> list[dict]:
 
 
 def build_message(results: list[dict]) -> str:
+    """
+    핵심 요약형. 예전에는 43종목을 6개 구간에 전부 나열해 50줄이 넘었는데,
+    실제로 볼 건 ⭐(빈집 + RS 강세)와 빈집 구간뿐이다. 나머지는 숫자만 센다.
+    전체 목록은 그리드 차트에 다 들어가고 Actions 로그에도 남는다.
+    """
     tickers = list(KR_STOCKS.keys())
-
     if not results:
         return "📊 <b>수급 오실레이터</b>\n데이터 수집 실패 — 네이버 응답 없음"
 
     kst = datetime.now(timezone.utc) + timedelta(hours=9)
-    header = (f"📊 <b>수급 오실레이터</b>\n"
-              f"🕐 {kst.strftime('%Y-%m-%d %H:%M')} (KST)\n"
-              f"  5일누적 외국인+기관 순매수 ÷ 시총 → MACD(12,26,9)\n"
-              f"  오실 = MACD − 시그널  (시총 대비 bp)\n"
-              f"  자기 이력 {PCT_WINDOW}일 백분위 구간으로 판정\n"
-              f"  🎯빈집 🔵빈집근접 ⚪평균이하 🟡평균이상 🟠상위권 🔴과열\n"
-              f"  RS = KOSPI 대비 {RS_DAYS}일 초과수익 백분위(0~100)\n"
-              f"  ⭐ = 빈집 + RS {RS_STRONG}↑ → 원본 전략의 공략 대상\n"
-              f"{'─' * 26}")
+    out = [f"📊 <b>수급 오실레이터</b> ({kst.strftime('%m/%d')})"]
 
-    groups: dict[str, list] = {}
+    targets = [r for r in results if r.get("target")]
+    empty   = [r for r in results if r["trend"] == "빈집" and not r.get("target")]
+    hot     = [r for r in results if r["trend"] == "과열"]
+
+    if targets:
+        out.append("")
+        out.append(f"⭐ <b>공략 대상</b> {len(targets)}종목 — 빈집 + RS {RS_STRONG}↑")
+        for r in sorted(targets, key=lambda x: -x.get("rs", 0)):
+            out.append(f"  {r['name']}  {_bp(r['osc'])}bp  RS {r.get('rs', 50):.0f}")
+    else:
+        out.append("")
+        out.append(f"⭐ 공략 대상 없음 (빈집 + RS {RS_STRONG}↑ 조건)")
+
+    if empty:
+        out.append("🎯 빈집(RS 미달): " +
+                   "  ".join(f"{r['name']}({r.get('rs', 50):.0f})" for r in empty))
+    if hot:
+        out.append("🔴 과열: " +
+                   "  ".join(f"{r['name']}({r.get('rs', 50):.0f})" for r in hot))
+
+    # 구간 분포 한 줄 — 시장 전체가 어느 쪽으로 쏠렸는지만 본다
+    cnt = {}
     for r in results:
-        groups.setdefault(r["trend"], []).append(r)
-
-    body = []
-    for trend, _ in (BANDS[i] for i in range(6)):
-        rows = groups.get(trend)
-        if not rows:
-            continue
-        body.append(f"\n{rows[0]['emoji']} <b>{trend}</b> ({len(rows)}종목)")
-        for r in rows:
-            star = "⭐" if r.get("target") else "  "
-            body.append(f"{star}{r['name']}  오실 {_bp(r['prev'])} → {_bp(r['osc'])}bp"
-                        f"  RS {r.get('rs', 50):.0f}")
+        cnt[r["trend"]] = cnt.get(r["trend"], 0) + 1
+    dist = "  ".join(f"{emo}{cnt[name]}" for _, (name, emo) in sorted(BANDS.items())
+                     if cnt.get(name))
+    out.append("")
+    out.append(f"분포 {dist}  (총 {len(results)}종목)")
 
     missing = len(tickers) - len(results)
-    footer = f"\n\n※ 데이터 부족/실패 {missing}종목" if missing else ""
-
-    return header + "\n".join(body) + footer
-
-
+    if missing:
+        out.append(f"※ 수집 실패 {missing}종목")
+    return "\n".join(out)
 def _is_trading_day() -> bool:
     if os.environ.get("FORCE_RUN", "false").lower() == "true":
         return True
